@@ -7,8 +7,8 @@ A single-file Python TUI application that models a free-to-play mobile game's 12
 ## Running
 
 ```bash
-./model.sh         # cd's to project dir, runs via venv
-.venv/bin/python bizmodel.py   # direct
+./runway.sh        # cd's to project dir, runs via venv
+.venv/bin/python runway.py   # direct
 ```
 
 No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key packages: `textual`, `rich`.
@@ -17,7 +17,7 @@ No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key pack
 
 ## Architecture
 
-Everything in `bizmodel.py` (~525 lines):
+Everything in `runway.py` (~525 lines):
 
 - **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 3 built-in scenarios on first run.
 - **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, tiered payer spending, ad revenue, CPI saturation, recursive virality, platform fees, payout delays, and scaling OpEx. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
