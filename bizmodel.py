@@ -8,6 +8,16 @@ from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane
 
 SCENARIOS_FILE = Path("scenarios.json")
 
+MODEL_F2P = "f2p"
+MODEL_PREMIUM = "premium"
+MODEL_REMOVE_ADS = "remove_ads"
+
+MODEL_OPTIONS = [
+    ("F2P (IAP + Ads)", MODEL_F2P),
+    ("Premium (Buy Once)", MODEL_PREMIUM),
+    ("F2P + Remove Ads IAP", MODEL_REMOVE_ADS),
+]
+
 EXPOSED_PARAMS = [
     ("daily_ua_spend", "in_ua_spend", float),
     ("cpi", "in_cpi", float),
@@ -25,10 +35,28 @@ EXPOSED_PARAMS = [
     ("server_cost_per_k_dau", "in_server_k", float),
     ("day_1_retention", "in_d1_retention", float),
     ("decay_exponent", "in_decay", float),
+    ("game_price", "in_game_price", float),
+    ("ad_removal_price", "in_ad_removal_price", float),
+    ("ad_removal_pct", "in_ad_removal_pct", float),
+    ("start_date", "in_start_date", str),
 ]
 
+F2P_ONLY_WIDGETS = {
+    "in_payer_pct", "in_whale_spend", "in_video_ecpm", "in_video_impressions",
+}
+PREMIUM_ONLY_WIDGETS = {"in_game_price"}
+REMOVE_ADS_ONLY_WIDGETS = {"in_ad_removal_price", "in_ad_removal_pct"}
+
+WIDGET_GROUPS = {
+    "grp_iap": {"in_payer_pct", "in_whale_spend"},
+    "grp_ads": {"in_video_ecpm", "in_video_impressions"},
+    "grp_game_price": {"in_game_price"},
+    "grp_ad_removal": {"in_ad_removal_price", "in_ad_removal_pct"},
+}
+
 DEFAULT_SCENARIOS = {
-    "Base Case": {
+    "F2P Base Case": {
+        "model_type": MODEL_F2P,
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
@@ -37,26 +65,31 @@ DEFAULT_SCENARIOS = {
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
     },
-    "Conservative": {
-        "daily_ua_spend": 5.00, "cpi": 0.40, "cpi_saturation": 0.50,
-        "influencer_installs": 0.0,
-        "organic_ratio": 0.06, "virality_k_factor": 0.03,
-        "payer_pct": 0.02, "whale_spend": 6.00,
-        "video_ecpm": 50.00, "video_impressions": 0.25, "platform_fee": 0.30,
-        "payout_delay_days": 45,
-        "fixed_overhead_daily": 12.00, "server_cost_per_k_dau": 0.15,
-        "day_1_retention": 30.0, "decay_exponent": 0.60,
-    },
-    "Aggressive": {
-        "daily_ua_spend": 25.00, "cpi": 0.18, "cpi_saturation": 0.20,
-        "influencer_installs": 50.0,
-        "organic_ratio": 0.15, "virality_k_factor": 0.08,
-        "payer_pct": 0.04, "whale_spend": 15.00,
-        "video_ecpm": 120.00, "video_impressions": 0.40, "platform_fee": 0.15,
+    "Premium $4.99": {
+        "model_type": MODEL_PREMIUM,
+        "daily_ua_spend": 15.00, "cpi": 0.80, "cpi_saturation": 0.40,
+        "influencer_installs": 10.0,
+        "organic_ratio": 0.12, "virality_k_factor": 0.04,
+        "payer_pct": 0.03, "whale_spend": 10.00,
+        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 0.30,
         "payout_delay_days": 30,
-        "fixed_overhead_daily": 8.00, "server_cost_per_k_dau": 0.10,
-        "day_1_retention": 50.0, "decay_exponent": 0.48,
+        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "day_1_retention": 45.0, "decay_exponent": 0.50,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
+    },
+    "F2P Remove Ads $2.99": {
+        "model_type": MODEL_REMOVE_ADS,
+        "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
+        "influencer_installs": 0.0,
+        "organic_ratio": 0.10, "virality_k_factor": 0.05,
+        "payer_pct": 0.03, "whale_spend": 10.00,
+        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
+        "payout_delay_days": 30,
+        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "day_1_retention": 40.0, "decay_exponent": 0.55,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
     },
 }
 
@@ -96,6 +129,7 @@ class ScenarioStore:
 
 class RevenueLagEngine:
     def __init__(self):
+        self.model_type = MODEL_F2P
         self.influencer_installs = 0.0
         self.organic_ratio = 0.10
         self.virality_k_factor = 0.05
@@ -123,13 +157,25 @@ class RevenueLagEngine:
 
         self.payout_delay_days = 30
 
+        self.game_price = 4.99
+        self.ad_removal_price = 2.99
+        self.ad_removal_pct = 0.05
+        self.start_date = datetime.date.today().strftime("%Y-%m-%d")
+
     def apply_params(self, params: dict):
-        for attr, _widget_id, cast_fn in EXPOSED_PARAMS:
+        if "model_type" in params:
+            self.model_type = params["model_type"]
+        start_date_input = datetime.date.today().strftime("%Y-%m-%d")
+        for attr, widget_id, cast_fn in EXPOSED_PARAMS:
             if attr in params:
                 setattr(self, attr, cast_fn(params[attr]))
+        if "start_date" not in params:
+            self.start_date = start_date_input
 
     def snapshot_params(self) -> dict:
-        return {attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS}
+        result = {"model_type": self.model_type}
+        result.update({attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS})
+        return result
 
     def calculate_daily_payer_arppu(self) -> float:
         return (
@@ -154,7 +200,7 @@ class RevenueLagEngine:
         cohort_history = {}
         accrued_revenue_history = {}
         cumulative_paid_installs = 0.0
-        start_date = datetime.date(2024, 2, 1)
+        start_date = datetime.date.fromisoformat(self.start_date)
 
         daily_payer_spend = self.calculate_daily_payer_arppu()
         ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
@@ -180,12 +226,27 @@ class RevenueLagEngine:
 
             dau = surviving_historical_users + total_new_installs
 
-            gross_iap = dau * self.payer_pct * daily_payer_spend
-            gross_ads = dau * ad_arpu_per_dau
+            if self.model_type == MODEL_PREMIUM:
+                gross_rev = total_new_installs * self.game_price
+                net_rev = gross_rev * (1.0 - self.platform_fee)
+                day_accrued_net_revenue = net_rev
 
-            net_iap = gross_iap * (1.0 - self.platform_fee)
-            net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
-            day_accrued_net_revenue = net_iap + net_ads
+            elif self.model_type == MODEL_REMOVE_ADS:
+                ad_removers = total_new_installs * self.ad_removal_pct
+                iap_rev = ad_removers * self.ad_removal_price
+                ad_viewing_dau = dau * (1.0 - self.ad_removal_pct)
+                gross_ads = ad_viewing_dau * ad_arpu_per_dau
+                net_iap = iap_rev * (1.0 - self.platform_fee)
+                net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
+                day_accrued_net_revenue = net_iap + net_ads
+
+            else:
+                gross_iap = dau * self.payer_pct * daily_payer_spend
+                gross_ads = dau * ad_arpu_per_dau
+                net_iap = gross_iap * (1.0 - self.platform_fee)
+                net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
+                day_accrued_net_revenue = net_iap + net_ads
+
             accrued_revenue_history[day] = day_accrued_net_revenue
 
             day_settled_cash_inflow = 0.0
@@ -321,6 +382,9 @@ class BusinessModelTUI(App):
         min-width: 10;
         margin-right: 1;
     }
+    .hidden {
+        display: none;
+    }
     """
 
     BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh"), ("escape", "unfocus", "Unfocus")]
@@ -334,7 +398,7 @@ class BusinessModelTUI(App):
         focused = self.focused
         if focused is None or not isinstance(focused, Input):
             return
-        inputs = list(self.query(Input).results())
+        inputs = [i for i in self.query(Input).results() if not i.has_class("hidden")]
         try:
             idx = inputs.index(focused)
         except ValueError:
@@ -369,6 +433,14 @@ class BusinessModelTUI(App):
                 yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
                 yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
 
+            yield Label("BUSINESS MODEL", classes="setting-group")
+            yield Label("Revenue Model:")
+            yield Select(MODEL_OPTIONS, value=MODEL_F2P, id="model_type_select")
+
+            yield Label("LAUNCH DATE", classes="setting-group")
+            yield Label("Start Date (YYYY-MM-DD):")
+            yield Input(value=self.engine.start_date, id="in_start_date")
+
             yield Label("MARKETING CAPITAL", classes="setting-group")
             yield Label("Daily UA Spend ($):")
             yield Input(value=str(self.engine.daily_ua_spend), id="in_ua_spend")
@@ -389,23 +461,35 @@ class BusinessModelTUI(App):
             yield Label("Retention Decay Rate:")
             yield Input(value=str(self.engine.decay_exponent), id="in_decay")
 
-            yield Label("TUNABLE MONETIZATION", classes="setting-group")
-            yield Label("Payer Conversion Rate (0.03 = 3%):")
+            yield Label("IAP MONETIZATION", classes="setting-group", id="lbl_iap")
+            yield Label("Payer Conversion Rate (0.03 = 3%):", id="lbl_payer_pct")
             yield Input(value=str(self.engine.payer_pct), id="in_payer_pct")
-            yield Label("Avg Whale Daily Spend ($):")
+            yield Label("Avg Whale Daily Spend ($):", id="lbl_whale")
             yield Input(value=str(self.engine.whale_spend), id="in_whale_spend")
-            yield Label("Video Ad eCPM ($):")
+
+            yield Label("AD REVENUE", classes="setting-group", id="lbl_ads")
+            yield Label("Video Ad eCPM ($):", id="lbl_ecpm")
             yield Input(value=str(self.engine.video_ecpm), id="in_video_ecpm")
-            yield Label("Ad Impressions / DAU / Day:")
+            yield Label("Ad Impressions / DAU / Day:", id="lbl_impressions")
             yield Input(value=str(self.engine.video_impressions), id="in_video_impressions")
+
+            yield Label("PREMIUM PRICING", classes="setting-group", id="lbl_premium")
+            yield Label("Game Price ($):", id="lbl_game_price")
+            yield Input(value=str(self.engine.game_price), id="in_game_price")
+
+            yield Label("AD REMOVAL IAP", classes="setting-group", id="lbl_remove_ads")
+            yield Label("Ad Removal Price ($):", id="lbl_ad_removal_price")
+            yield Input(value=str(self.engine.ad_removal_price), id="in_ad_removal_price")
+            yield Label("Removal Conversion %:", id="lbl_ad_removal_pct")
+            yield Input(value=str(self.engine.ad_removal_pct), id="in_ad_removal_pct")
+
+            yield Label("PLATFORM FEES", classes="setting-group")
             yield Label("Platform Fee (0.30 = 30%):")
             yield Input(value=str(self.engine.platform_fee), id="in_platform_fee")
-
-            yield Label("CASH TIMING", classes="setting-group")
             yield Label("Platform Payout Delay (Days):")
             yield Input(value=str(self.engine.payout_delay_days), id="in_delay")
 
-            yield Label("LIVE-OPS OPEX TIERING", classes="setting-group")
+            yield Label("LIVE-OPS OPEX", classes="setting-group")
             yield Label("Fixed Daily Overhead ($):")
             yield Input(value=str(self.engine.fixed_overhead_daily), id="in_fixed_ops")
             yield Label("Server Cost per 1k DAU ($):")
@@ -430,7 +514,7 @@ class BusinessModelTUI(App):
 
         cmp = self.query_one("#compare_table", DataTable)
         cmp.add_columns(
-            "Scenario", "Peak DAU", "Total Accrued",
+            "Scenario", "Model", "Peak DAU", "Total Accrued",
             "Break-even", "Year-End Bank"
         )
         cmp.cursor_type = "row"
@@ -441,6 +525,39 @@ class BusinessModelTUI(App):
         self.action_recalculate()
         self._refresh_compare()
 
+    def _apply_model_visibility(self, model_type: str):
+        show = {"grp_iap": False, "grp_ads": False, "grp_game_price": False, "grp_ad_removal": False}
+
+        if model_type == MODEL_F2P:
+            show["grp_iap"] = True
+            show["grp_ads"] = True
+        elif model_type == MODEL_PREMIUM:
+            show["grp_game_price"] = True
+        elif model_type == MODEL_REMOVE_ADS:
+            show["grp_ads"] = True
+            show["grp_ad_removal"] = True
+
+        for group, widget_ids in WIDGET_GROUPS.items():
+            visible = show[group]
+            for wid in widget_ids:
+                widget = self.query_one(f"#{wid}")
+                widget.set_class(not visible, "hidden")
+            header_id = {
+                "grp_iap": "lbl_iap", "grp_ads": "lbl_ads",
+                "grp_game_price": "lbl_premium", "grp_ad_removal": "lbl_remove_ads",
+            }[group]
+            header = self.query_one(f"#{header_id}")
+            header.set_class(not visible, "hidden")
+            for wid in widget_ids:
+                label_id = {
+                    "in_payer_pct": "lbl_payer_pct", "in_whale_spend": "lbl_whale",
+                    "in_video_ecpm": "lbl_ecpm", "in_video_impressions": "lbl_impressions",
+                    "in_game_price": "lbl_game_price",
+                    "in_ad_removal_price": "lbl_ad_removal_price", "in_ad_removal_pct": "lbl_ad_removal_pct",
+                }[wid]
+                label = self.query_one(f"#{label_id}")
+                label.set_class(not visible, "hidden")
+
     def _load_scenario(self, name: str):
         params = self.store.get(name)
         if not params:
@@ -448,6 +565,9 @@ class BusinessModelTUI(App):
         self._loading_scenario = True
         try:
             self.engine.apply_params(params)
+            model_type = params.get("model_type", MODEL_F2P)
+            self.query_one("#model_type_select", Select).value = model_type
+            self._apply_model_visibility(model_type)
             for attr, widget_id, cast_fn in EXPOSED_PARAMS:
                 self.query_one(f"#{widget_id}", Input).value = str(getattr(self.engine, attr))
         finally:
@@ -465,6 +585,10 @@ class BusinessModelTUI(App):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "scenario_select" and event.value is not None:
             self._load_scenario(str(event.value))
+            self.action_recalculate()
+        elif event.select.id == "model_type_select" and event.value is not None:
+            self.engine.model_type = str(event.value)
+            self._apply_model_visibility(str(event.value))
             self.action_recalculate()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -493,7 +617,10 @@ class BusinessModelTUI(App):
     def action_recalculate(self) -> None:
         try:
             for attr, widget_id, cast_fn in EXPOSED_PARAMS:
-                setattr(self.engine, attr, cast_fn(self.query_one(f"#{widget_id}", Input).value))
+                widget = self.query_one(f"#{widget_id}", Input)
+                if widget.has_class("hidden"):
+                    continue
+                setattr(self.engine, attr, cast_fn(widget.value))
         except ValueError:
             return
 
@@ -502,7 +629,6 @@ class BusinessModelTUI(App):
         table.clear()
 
         for day in timeline_data:
-            cf_color = "[green]" if day["cash_flow"] >= 0 else "[span style=reverse] "
             bank_color = "[green]" if day["bank_balance"] >= 0 else "[bold red]"
 
             table.add_row(
@@ -527,8 +653,12 @@ class BusinessModelTUI(App):
             summary = RevenueLagEngine.summarize_timeline(timeline)
             be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
             bank_color = "[green]" if summary["final_bank"] >= 0 else "[bold red]"
+            model_label = {
+                MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
+            }.get(params.get("model_type", MODEL_F2P), "F2P")
             cmp.add_row(
                 name,
+                model_label,
                 f"{summary['peak_dau']:,}",
                 f"${summary['total_accrued']:,.2f}",
                 be,
