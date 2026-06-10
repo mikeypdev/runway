@@ -1,41 +1,135 @@
 import datetime
+import json
+import math
+from pathlib import Path
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable
+from textual.containers import Vertical
+from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button
+
+SCENARIOS_FILE = Path("scenarios.json")
+
+EXPOSED_PARAMS = [
+    ("daily_ua_spend", "in_ua_spend", float),
+    ("cpi", "in_cpi", float),
+    ("cpi_saturation", "in_cpi_sat", float),
+    ("influencer_installs", "in_influencer", float),
+    ("organic_ratio", "in_organic", float),
+    ("virality_k_factor", "in_kfactor", float),
+    ("payer_pct", "in_payer_pct", float),
+    ("whale_spend", "in_whale_spend", float),
+    ("video_ecpm", "in_video_ecpm", float),
+    ("video_impressions", "in_video_impressions", float),
+    ("platform_fee", "in_platform_fee", float),
+    ("payout_delay_days", "in_delay", int),
+    ("fixed_overhead_daily", "in_fixed_ops", float),
+    ("server_cost_per_k_dau", "in_server_k", float),
+    ("day_1_retention", "in_d1_retention", float),
+    ("decay_exponent", "in_decay", float),
+]
+
+DEFAULT_SCENARIOS = {
+    "Base Case": {
+        "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
+        "influencer_installs": 0.0,
+        "organic_ratio": 0.10, "virality_k_factor": 0.05,
+        "payer_pct": 0.03, "whale_spend": 10.00,
+        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
+        "payout_delay_days": 30,
+        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "day_1_retention": 40.0, "decay_exponent": 0.55,
+    },
+    "Conservative": {
+        "daily_ua_spend": 5.00, "cpi": 0.40, "cpi_saturation": 0.50,
+        "influencer_installs": 0.0,
+        "organic_ratio": 0.06, "virality_k_factor": 0.03,
+        "payer_pct": 0.02, "whale_spend": 6.00,
+        "video_ecpm": 50.00, "video_impressions": 0.25, "platform_fee": 0.30,
+        "payout_delay_days": 45,
+        "fixed_overhead_daily": 12.00, "server_cost_per_k_dau": 0.15,
+        "day_1_retention": 30.0, "decay_exponent": 0.60,
+    },
+    "Aggressive": {
+        "daily_ua_spend": 25.00, "cpi": 0.18, "cpi_saturation": 0.20,
+        "influencer_installs": 50.0,
+        "organic_ratio": 0.15, "virality_k_factor": 0.08,
+        "payer_pct": 0.04, "whale_spend": 15.00,
+        "video_ecpm": 120.00, "video_impressions": 0.40, "platform_fee": 0.15,
+        "payout_delay_days": 30,
+        "fixed_overhead_daily": 8.00, "server_cost_per_k_dau": 0.10,
+        "day_1_retention": 50.0, "decay_exponent": 0.48,
+    },
+}
+
+
+class ScenarioStore:
+    def __init__(self):
+        self.scenarios: dict[str, dict] = {}
+        self._load()
+
+    def _load(self):
+        if SCENARIOS_FILE.exists():
+            try:
+                self.scenarios = json.loads(SCENARIOS_FILE.read_text())
+            except (json.JSONDecodeError, OSError):
+                self.scenarios = {}
+        if not self.scenarios:
+            self.scenarios = dict(DEFAULT_SCENARIOS)
+            self.save()
+
+    def save(self):
+        SCENARIOS_FILE.write_text(json.dumps(self.scenarios, indent=2) + "\n")
+
+    def list_names(self) -> list[str]:
+        return list(self.scenarios.keys())
+
+    def get(self, name: str) -> dict | None:
+        return self.scenarios.get(name)
+
+    def put(self, name: str, params: dict):
+        self.scenarios[name] = params
+        self.save()
+
+    def delete(self, name: str):
+        self.scenarios.pop(name, None)
+        self.save()
+
 
 class RevenueLagEngine:
     def __init__(self):
-        # 1. Growth Pipeline Variables
         self.influencer_installs = 0.0
-        self.organic_ratio = 0.10     
-        self.virality_k_factor = 0.05  
-        self.cpi = 0.26                
-        self.daily_ua_spend = 10.00    
-        
-        # 2. Tunable Monetization Anchors
-        self.payer_pct = 0.03          
-        self.platform_fee = 0.30       
-        self.video_ecpm = 80.00        
-        self.video_impressions = 0.33  
-        
-        # Real-world F2P Daily Spending Tier Weights (Daily average per active payer)
+        self.organic_ratio = 0.10
+        self.virality_k_factor = 0.05
+        self.cpi = 0.26
+        self.cpi_saturation = 0.30
+        self.daily_ua_spend = 10.00
+
+        self.payer_pct = 0.03
+        self.platform_fee = 0.30
+        self.video_ecpm = 80.00
+        self.video_impressions = 0.33
+
         self.minnow_spend, self.minnow_pct = 0.10, 0.55
         self.tuna_spend, self.tuna_pct = 0.50, 0.27
         self.dolphin_spend, self.dolphin_pct = 2.00, 0.155
         self.whale_spend, self.whale_pct = 10.00, 0.025
 
-        # 3. Scaling LiveOps OpEx
-        self.fixed_overhead_daily = 10.00     
-        self.server_cost_per_k_dau = 0.12     
-        self.support_cost_per_k_dau = 0.04    
-        self.ad_mediation_tax = 0.02          
+        self.fixed_overhead_daily = 10.00
+        self.server_cost_per_k_dau = 0.12
+        self.support_cost_per_k_dau = 0.04
+        self.ad_mediation_tax = 0.02
 
-        # 4. Power-Law Retention Parameters
-        self.day_1_retention = 40.0    
-        self.decay_exponent = 0.55     
+        self.day_1_retention = 40.0
+        self.decay_exponent = 0.55
 
-        # Platform Payout Delay
         self.payout_delay_days = 30
+
+    def apply_params(self, params: dict):
+        for attr, _widget_id, cast_fn in EXPOSED_PARAMS:
+            if attr in params:
+                setattr(self, attr, cast_fn(params[attr]))
+
+    def snapshot_params(self) -> dict:
+        return {attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS}
 
     def calculate_daily_payer_arppu(self) -> float:
         return (
@@ -54,65 +148,65 @@ class RevenueLagEngine:
         retained_rate = d1_rate * (days_alive ** -self.decay_exponent)
         return max(retained_rate, d1_rate * 0.12)
 
-    def calculate_90_days(self):
-        timeline = []
+    def calculate_timeline(self):
+        all_days = []
         cumulative_bank_balance = 0.0
-        cohort_history = {} 
-        accrued_revenue_history = {} 
+        cohort_history = {}
+        accrued_revenue_history = {}
+        cumulative_paid_installs = 0.0
         start_date = datetime.date(2024, 2, 1)
 
         daily_payer_spend = self.calculate_daily_payer_arppu()
         ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
 
-        for day in range(90):
+        for day in range(365):
             current_date = start_date + datetime.timedelta(days=day)
-            
-            # Growth Engine 
-            paid_installs = self.daily_ua_spend / self.cpi if self.cpi > 0 else 0
+
+            effective_cpi = self.cpi * (1 + self.cpi_saturation * math.log(1 + cumulative_paid_installs / 10000))
+            paid_installs = self.daily_ua_spend / effective_cpi if effective_cpi > 0 else 0
+            cumulative_paid_installs += paid_installs
             base_installs = self.influencer_installs + paid_installs
-            
+
             surviving_historical_users = 0.0
             for cohort_day, initial_installs in cohort_history.items():
                 days_elapsed = day - cohort_day
                 surviving_historical_users += initial_installs * self.get_retention_rate(days_elapsed)
-            
+
             organic_installs = base_installs * self.organic_ratio
-            viral_installs = (base_installs + organic_installs) * self.virality_k_factor
+            first_wave = (base_installs + organic_installs) * self.virality_k_factor
+            viral_installs = first_wave / (1 - self.virality_k_factor) if self.virality_k_factor < 1.0 else first_wave * 10
             total_new_installs = base_installs + organic_installs + viral_installs
             cohort_history[day] = total_new_installs
-            
+
             dau = surviving_historical_users + total_new_installs
-            
-            # Accrued Revenue calculations using updated values
+
             gross_iap = dau * self.payer_pct * daily_payer_spend
             gross_ads = dau * ad_arpu_per_dau
-            
+
             net_iap = gross_iap * (1.0 - self.platform_fee)
             net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
             day_accrued_net_revenue = net_iap + net_ads
             accrued_revenue_history[day] = day_accrued_net_revenue
-            
-            # Settled Cash Inflow
+
             day_settled_cash_inflow = 0.0
             payout_day_source = day - self.payout_delay_days
             if payout_day_source >= 0:
                 day_settled_cash_inflow = accrued_revenue_history.get(payout_day_source, 0.0)
-            
-            # Cash Outflow
+
             scaling_server_expense = (dau / 1000.0) * self.server_cost_per_k_dau
             scaling_support_expense = (dau / 1000.0) * self.support_cost_per_k_dau
             total_ops_outflow = (
-                self.fixed_overhead_daily + 
-                scaling_server_expense + 
-                scaling_support_expense + 
+                self.fixed_overhead_daily +
+                scaling_server_expense +
+                scaling_support_expense +
                 self.daily_ua_spend
             )
-            
+
             net_daily_cash_flow = day_settled_cash_inflow - total_ops_outflow
             cumulative_bank_balance += net_daily_cash_flow
-            
-            timeline.append({
-                "date": current_date.strftime("%Y-%m-%d"),
+
+            all_days.append({
+                "date": current_date,
                 "dau": int(dau),
                 "accrued_rev": day_accrued_net_revenue,
                 "cash_inflow": day_settled_cash_inflow,
@@ -120,8 +214,45 @@ class RevenueLagEngine:
                 "cash_flow": net_daily_cash_flow,
                 "bank_balance": cumulative_bank_balance
             })
-            
+
+        timeline = []
+        for d in all_days[:90]:
+            timeline.append({**d, "date": d["date"].strftime("%Y-%m-%d")})
+
+        remaining = all_days[90:]
+        if remaining:
+            months: dict[str, list] = {}
+            for d in remaining:
+                key = d["date"].strftime("%Y-%m")
+                months.setdefault(key, []).append(d)
+            for key in sorted(months.keys()):
+                rows = months[key]
+                timeline.append({
+                    "date": f"{key} (month)",
+                    "dau": rows[-1]["dau"],
+                    "accrued_rev": sum(r["accrued_rev"] for r in rows),
+                    "cash_inflow": sum(r["cash_inflow"] for r in rows),
+                    "ops_cost": sum(r["ops_cost"] for r in rows),
+                    "cash_flow": sum(r["cash_flow"] for r in rows),
+                    "bank_balance": rows[-1]["bank_balance"],
+                })
+
         return timeline
+
+    @staticmethod
+    def summarize_timeline(timeline: list[dict]) -> dict:
+        peak_dau = max(d["dau"] for d in timeline)
+        total_accrued = sum(d["accrued_rev"] for d in timeline)
+        final_bank = timeline[-1]["bank_balance"]
+        break_even = next(
+            (i for i, d in enumerate(timeline) if d["bank_balance"] >= 0), None
+        )
+        return {
+            "peak_dau": peak_dau,
+            "total_accrued": total_accrued,
+            "final_bank": final_bank,
+            "break_even_day": break_even,
+        }
 
 
 class BusinessModelTUI(App):
@@ -130,10 +261,11 @@ class BusinessModelTUI(App):
         layout: horizontal;
     }
     #sidebar {
-        width: 44;
+        width: 46;
         background: #1c1c1f;
         border-right: solid #2c2c2f;
         padding: 1;
+        overflow-y: auto;
     }
     #main-content {
         width: 1fr;
@@ -164,92 +296,252 @@ class BusinessModelTUI(App):
         height: 1fr;
         border: none;
     }
+    Select {
+        width: 100%;
+        margin-bottom: 0;
+        height: 5;
+    }
+    Select:focus {
+        border: solid #ff9933;
+    }
+    Select > .select--current {
+        color: $text;
+        background: #101012;
+        height: 3;
+    }
+    #scenario-bar {
+        height: auto;
+        margin-bottom: 1;
+    }
+    #scenario-bar Horizontal {
+        height: auto;
+    }
+    .btn-sm {
+        height: 3;
+        min-width: 10;
+        margin-right: 1;
+    }
     """
-    
-    BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh")]
+
+    BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh"), ("escape", "unfocus", "Unfocus")]
+
+    def action_unfocus(self) -> None:
+        self.set_focus(None)
+
+    def on_key(self, event) -> None:
+        if event.key not in ("up", "down"):
+            return
+        focused = self.focused
+        if focused is None or not isinstance(focused, Input):
+            return
+        inputs = list(self.query(Input).results())
+        try:
+            idx = inputs.index(focused)
+        except ValueError:
+            return
+        if event.key == "up" and idx > 0:
+            inputs[idx - 1].focus()
+        elif event.key == "down" and idx < len(inputs) - 1:
+            inputs[idx + 1].focus()
+        else:
+            return
+        event.prevent_default()
+
+    def __init__(self):
+        super().__init__()
+        self.store = ScenarioStore()
+        self._loading_scenario = False
 
     def compose(self) -> ComposeResult:
         self.engine = RevenueLagEngine()
-        
+
+        scenario_options = [(n, n) for n in self.store.list_names()]
+        first_scenario = scenario_options[0][0] if scenario_options else None
+
         yield Header()
         with Vertical(id="sidebar"):
+            yield Label("SCENARIO", classes="setting-group")
+            yield Label("Active Scenario:")
+            yield Select(scenario_options, value=first_scenario, id="scenario_select")
+            yield Label("New Scenario Name:")
+            yield Input(placeholder="Type name, then Save", id="in_scenario_name")
+            with Vertical(id="scenario-bar"):
+                yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
+                yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
+
             yield Label("MARKETING CAPITAL", classes="setting-group")
             yield Label("Daily UA Spend ($):")
             yield Input(value=str(self.engine.daily_ua_spend), id="in_ua_spend")
-            yield Label("Target CPI ($):")
+            yield Label("Cost Per Install ($):")
             yield Input(value=str(self.engine.cpi), id="in_cpi")
-            
+            yield Label("CPI Saturation (compounds with scale):")
+            yield Input(value=str(self.engine.cpi_saturation), id="in_cpi_sat")
+            yield Label("Burst / Influencer Installs per Day:")
+            yield Input(value=str(self.engine.influencer_installs), id="in_influencer")
+
+            yield Label("GROWTH & RETENTION", classes="setting-group")
+            yield Label("Organic Install Ratio (vs paid):")
+            yield Input(value=str(self.engine.organic_ratio), id="in_organic")
+            yield Label("Viral K-Factor (installs/user):")
+            yield Input(value=str(self.engine.virality_k_factor), id="in_kfactor")
+            yield Label("D1 Retention (%):")
+            yield Input(value=str(self.engine.day_1_retention), id="in_d1_retention")
+            yield Label("Retention Decay Rate:")
+            yield Input(value=str(self.engine.decay_exponent), id="in_decay")
+
             yield Label("TUNABLE MONETIZATION", classes="setting-group")
             yield Label("Payer Conversion Rate (0.03 = 3%):")
             yield Input(value=str(self.engine.payer_pct), id="in_payer_pct")
-            yield Label("Whale Tier Daily Spend ($):")
+            yield Label("Avg Whale Daily Spend ($):")
             yield Input(value=str(self.engine.whale_spend), id="in_whale_spend")
             yield Label("Video Ad eCPM ($):")
             yield Input(value=str(self.engine.video_ecpm), id="in_video_ecpm")
-            
-            yield Label("FINANCIAL RUNWAY DELAY", classes="setting-group")
+            yield Label("Ad Impressions / DAU / Day:")
+            yield Input(value=str(self.engine.video_impressions), id="in_video_impressions")
+            yield Label("Platform Fee (0.30 = 30%):")
+            yield Input(value=str(self.engine.platform_fee), id="in_platform_fee")
+
+            yield Label("CASH TIMING", classes="setting-group")
             yield Label("Platform Payout Delay (Days):")
             yield Input(value=str(self.engine.payout_delay_days), id="in_delay")
-            
+
             yield Label("LIVE-OPS OPEX TIERING", classes="setting-group")
-            yield Label("Fixed Daily Base Staff ($):")
+            yield Label("Fixed Daily Overhead ($):")
             yield Input(value=str(self.engine.fixed_overhead_daily), id="in_fixed_ops")
             yield Label("Server Cost per 1k DAU ($):")
             yield Input(value=str(self.engine.server_cost_per_k_dau), id="in_server_k")
-            
+
         with Vertical(id="main-content"):
             with TabbedContent():
-                with TabPane("Launch Cash Flow Runway Analyzer", id="tab_timeline"):
+                with TabPane("12-Month Runway", id="tab_timeline"):
                     yield DataTable(id="timeline_table")
+                with TabPane("Compare Scenarios", id="tab_compare"):
+                    yield DataTable(id="compare_table")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#timeline_table", DataTable)
         table.add_columns(
-            "Date", "Active DAU", "Accrued (Paper) Rev", 
-            "Settled Cash Inflow", "Real-time Expenses", 
-            "Net Cash Flow", "Cumulative Bank Account"
+            "Date", "DAU", "Accrued Rev",
+            "Cash In", "Expenses",
+            "Bank Balance"
         )
         table.cursor_type = "row"
+
+        cmp = self.query_one("#compare_table", DataTable)
+        cmp.add_columns(
+            "Scenario", "Peak DAU", "Total Accrued",
+            "Break-even", "Year-End Bank"
+        )
+        cmp.cursor_type = "row"
+
+        if self.store.list_names():
+            self._load_scenario(self.store.list_names()[0])
+
         self.action_recalculate()
+        self._refresh_compare()
+
+    def _load_scenario(self, name: str):
+        params = self.store.get(name)
+        if not params:
+            return
+        self._loading_scenario = True
+        try:
+            self.engine.apply_params(params)
+            for attr, widget_id, cast_fn in EXPOSED_PARAMS:
+                self.query_one(f"#{widget_id}", Input).value = str(getattr(self.engine, attr))
+        finally:
+            self._loading_scenario = False
+
+    def _refresh_select(self, active_name: str | None = None):
+        select = self.query_one("#scenario_select", Select)
+        names = self.store.list_names()
+        select.set_options([(n, n) for n in names])
+        if active_name and active_name in names:
+            select.value = active_name
+        elif names:
+            select.value = names[0]
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "scenario_select" and event.value is not None:
+            self._load_scenario(str(event.value))
+            self.action_recalculate()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_save":
+            name = self.query_one("#in_scenario_name", Input).value.strip()
+            if not name:
+                current = self.query_one("#scenario_select", Select)
+                name = str(current.value) if current.value else None
+            if not name:
+                return
+            self.store.put(name, self.engine.snapshot_params())
+            self._refresh_select(name)
+            self._refresh_compare()
+
+        elif event.button.id == "btn_delete":
+            current = self.query_one("#scenario_select", Select)
+            if current.value:
+                self.store.delete(str(current.value))
+                self._refresh_select()
+                names = self.store.list_names()
+                if names:
+                    self._load_scenario(names[0])
+                    self.action_recalculate()
+                self._refresh_compare()
 
     def action_recalculate(self) -> None:
         try:
-            # Parse Growth & Operations inputs
-            self.engine.daily_ua_spend = float(self.query_one("#in_ua_spend", Input).value)
-            self.engine.cpi = float(self.query_one("#in_cpi", Input).value)
-            self.engine.payout_delay_days = int(self.query_one("#in_delay", Input).value)
-            self.engine.fixed_overhead_daily = float(self.query_one("#in_fixed_ops", Input).value)
-            self.engine.server_cost_per_k_dau = float(self.query_one("#in_server_k", Input).value)
-            
-            # Parse newly exposed Monetization parameters
-            self.engine.payer_pct = float(self.query_one("#in_payer_pct", Input).value)
-            self.engine.whale_spend = float(self.query_one("#in_whale_spend", Input).value)
-            self.engine.video_ecpm = float(self.query_one("#in_video_ecpm", Input).value)
+            for attr, widget_id, cast_fn in EXPOSED_PARAMS:
+                setattr(self.engine, attr, cast_fn(self.query_one(f"#{widget_id}", Input).value))
         except ValueError:
-            # Don't break if the user is in the middle of typing a decimal point
-            return 
-            
-        timeline_data = self.engine.calculate_90_days()
+            return
+
+        timeline_data = self.engine.calculate_timeline()
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
-        
+
         for day in timeline_data:
             cf_color = "[green]" if day["cash_flow"] >= 0 else "[span style=reverse] "
             bank_color = "[green]" if day["bank_balance"] >= 0 else "[bold red]"
-            
+
             table.add_row(
                 day["date"],
                 f"{day['dau']:,}",
                 f"${day['accrued_rev']:.2f}",
                 f"${day['cash_inflow']:.2f}",
                 f"${day['ops_cost']:.2f}",
-                f"{cf_color}${day['cash_flow']:.2f}[/]",
                 f"{bank_color}${day['bank_balance']:.2f}[/]"
             )
 
+    def _refresh_compare(self):
+        cmp = self.query_one("#compare_table", DataTable)
+        cmp.clear()
+        for name in self.store.list_names():
+            params = self.store.get(name)
+            if not params:
+                continue
+            tmp_engine = RevenueLagEngine()
+            tmp_engine.apply_params(params)
+            timeline = tmp_engine.calculate_timeline()
+            summary = RevenueLagEngine.summarize_timeline(timeline)
+            be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
+            bank_color = "[green]" if summary["final_bank"] >= 0 else "[bold red]"
+            cmp.add_row(
+                name,
+                f"{summary['peak_dau']:,}",
+                f"${summary['total_accrued']:,.2f}",
+                be,
+                f"{bank_color}${summary['final_bank']:,.2f}[/]",
+            )
+
     def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "in_scenario_name":
+            return
+        if self._loading_scenario:
+            return
         self.action_recalculate()
+
 
 if __name__ == "__main__":
     BusinessModelTUI().run()
