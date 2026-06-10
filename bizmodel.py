@@ -3,105 +3,122 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable
 
-class RealisticScenarioEngine:
+class RevenueLagEngine:
     def __init__(self):
-        # Default Growth Inputs from your littlelike.me sheet
+        # 1. Growth Pipeline Variables
         self.influencer_installs = 0.0
-        self.organic_ratio = 0.10     # 10%
-        self.virality_factor = 0.05    # 5%
-        self.cpi = 0.26                # $0.26
-        self.daily_ua_spend = 10.00    # $10.00
+        self.organic_ratio = 0.10     
+        self.virality_k_factor = 0.05  
+        self.cpi = 0.26                
+        self.daily_ua_spend = 10.00    
         
-        # Retention Setting (Now acts as actual Day 1 Retention %)
-        self.day_1_retention = 40.0    # 40% (Corresponds to Curve Index 11)
-        self.decay_exponent = 0.55     # Industry standard F2P decay curve power parameter
+        # 2. Tunable Monetization Anchors
+        self.payer_pct = 0.03          
+        self.platform_fee = 0.30       
+        self.video_ecpm = 80.00        
+        self.video_impressions = 0.33  
         
-        # Monetization & LTV Tier Breakdowns from your sheet
-        self.payer_pct = 0.03          # 3.00%
-        
-        # Blended Average Revenue Per Paying User (ARPPU) based on your tier weights:
-        # Minnows (55% @ $0.99), Tuna (27% @ $4.98), Dolphins (15.5% @ $20), Whales (2.49% @ $100)
-        self.avg_iap_per_payer = 5.48  
-        
-        # Ad Revenue Parameters from your sheet
-        self.video_ecpm = 80.00        # $80.00
-        self.video_impressions = 0.33  # 0.33 impressions per DAU
-        self.ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+        # Real-world F2P Daily Spending Tier Weights (Daily average per active payer)
+        self.minnow_spend, self.minnow_pct = 0.10, 0.55
+        self.tuna_spend, self.tuna_pct = 0.50, 0.27
+        self.dolphin_spend, self.dolphin_pct = 2.00, 0.155
+        self.whale_spend, self.whale_pct = 10.00, 0.025
 
-        # Fixed Operational Costs (Contractors $10 + Software Overhead)
-        self.fixed_expenses_daily = 10.32 
+        # 3. Scaling LiveOps OpEx
+        self.fixed_overhead_daily = 10.00     
+        self.server_cost_per_k_dau = 0.12     
+        self.support_cost_per_k_dau = 0.04    
+        self.ad_mediation_tax = 0.02          
+
+        # 4. Power-Law Retention Parameters
+        self.day_1_retention = 40.0    
+        self.decay_exponent = 0.55     
+
+        # Platform Payout Delay
+        self.payout_delay_days = 30
+
+    def calculate_daily_payer_arppu(self) -> float:
+        return (
+            (self.minnow_pct * self.minnow_spend) +
+            (self.tuna_pct * self.tuna_spend) +
+            (self.dolphin_pct * self.dolphin_spend) +
+            (self.whale_pct * self.whale_spend)
+        )
 
     def get_retention_rate(self, days_alive: int) -> float:
-        """
-        Calculates user retention using a realistic F2P Power-Law Decay function.
-        Replaces linear interpolation to reflect steep Day 2 drops and a flat long-tail.
-        """
         if days_alive == 0:
             return 1.00
-            
         d1_rate = self.day_1_retention / 100.0
         if days_alive == 1:
             return d1_rate
-
-        # Power-law log decay equation
         retained_rate = d1_rate * (days_alive ** -self.decay_exponent)
-        
-        # Hard core-player floor: 12% of Day 1 users stay indefinitely
-        core_floor = d1_rate * 0.12
-        
-        return max(retained_rate, core_floor)
+        return max(retained_rate, d1_rate * 0.12)
 
     def calculate_90_days(self):
         timeline = []
-        cumulative_profit = 0.0
-        
-        # Track historical cohorts. Key: day_index, Value: historical cohort install quantity
+        cumulative_bank_balance = 0.0
         cohort_history = {} 
-        
+        accrued_revenue_history = {} 
         start_date = datetime.date(2024, 2, 1)
+
+        daily_payer_spend = self.calculate_daily_payer_arppu()
+        ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
 
         for day in range(90):
             current_date = start_date + datetime.timedelta(days=day)
             
-            # 1. Calculate Base Installs (Paid + Influencer)
+            # Growth Engine 
             paid_installs = self.daily_ua_spend / self.cpi if self.cpi > 0 else 0
             base_installs = self.influencer_installs + paid_installs
             
-            # 2. Iterate through all past cohorts to build today's baseline active users
             surviving_historical_users = 0.0
             for cohort_day, initial_installs in cohort_history.items():
                 days_elapsed = day - cohort_day
                 surviving_historical_users += initial_installs * self.get_retention_rate(days_elapsed)
             
-            # 3. Apply virality/organics loops based on your active historical pool
-            viral_installs = surviving_historical_users * self.virality_factor
             organic_installs = base_installs * self.organic_ratio
-            
+            viral_installs = (base_installs + organic_installs) * self.virality_k_factor
             total_new_installs = base_installs + organic_installs + viral_installs
-            
-            # Record current day's cohort into history
             cohort_history[day] = total_new_installs
             
-            # Today's total DAU includes the brand new cohort + survivors from prior days
             dau = surviving_historical_users + total_new_installs
             
-            # 4. Financial Calculations
-            iap_revenue = dau * self.payer_pct * self.avg_iap_per_payer
-            ad_revenue = dau * self.ad_arpu_per_dau
-            total_revenue = iap_revenue + ad_revenue
+            # Accrued Revenue calculations using updated values
+            gross_iap = dau * self.payer_pct * daily_payer_spend
+            gross_ads = dau * ad_arpu_per_dau
             
-            total_outflow = self.daily_ua_spend + self.fixed_expenses_daily
-            net_cash_flow = total_revenue - total_outflow
-            cumulative_profit += net_cash_flow
+            net_iap = gross_iap * (1.0 - self.platform_fee)
+            net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
+            day_accrued_net_revenue = net_iap + net_ads
+            accrued_revenue_history[day] = day_accrued_net_revenue
+            
+            # Settled Cash Inflow
+            day_settled_cash_inflow = 0.0
+            payout_day_source = day - self.payout_delay_days
+            if payout_day_source >= 0:
+                day_settled_cash_inflow = accrued_revenue_history.get(payout_day_source, 0.0)
+            
+            # Cash Outflow
+            scaling_server_expense = (dau / 1000.0) * self.server_cost_per_k_dau
+            scaling_support_expense = (dau / 1000.0) * self.support_cost_per_k_dau
+            total_ops_outflow = (
+                self.fixed_overhead_daily + 
+                scaling_server_expense + 
+                scaling_support_expense + 
+                self.daily_ua_spend
+            )
+            
+            net_daily_cash_flow = day_settled_cash_inflow - total_ops_outflow
+            cumulative_bank_balance += net_daily_cash_flow
             
             timeline.append({
                 "date": current_date.strftime("%Y-%m-%d"),
                 "dau": int(dau),
-                "installs": int(total_new_installs),
-                "iap": iap_revenue,
-                "ads": ad_revenue,
-                "cash_flow": net_cash_flow,
-                "cum_profit": cumulative_profit
+                "accrued_rev": day_accrued_net_revenue,
+                "cash_inflow": day_settled_cash_inflow,
+                "ops_cost": total_ops_outflow,
+                "cash_flow": net_daily_cash_flow,
+                "bank_balance": cumulative_bank_balance
             })
             
         return timeline
@@ -113,34 +130,35 @@ class BusinessModelTUI(App):
         layout: horizontal;
     }
     #sidebar {
-        width: 38;
-        background: #1e1e1e;
-        border-right: solid #333333;
+        width: 44;
+        background: #1c1c1f;
+        border-right: solid #2c2c2f;
         padding: 1;
     }
     #main-content {
         width: 1fr;
     }
     .setting-group {
-        background: #2d2d2d;
-        color: #00ff00;
+        background: #2a2a30;
+        color: #ff9933;
         padding: 0 1;
         margin-top: 1;
-        margin-bottom: 1;
+        margin-bottom: 0;
         text-style: bold;
     }
     Label {
         margin-top: 1;
-        color: #cccccc;
+        color: #a0a0a8;
+        text-style: dim;
     }
     Input {
         margin-bottom: 0;
-        border: solid #444444;
+        border: solid #3a3a40;
         height: 3;
-        background: #111111;
+        background: #101012;
     }
     Input:focus {
-        border: solid #00ff00;
+        border: solid #ff9933;
     }
     DataTable {
         height: 1fr;
@@ -148,73 +166,89 @@ class BusinessModelTUI(App):
     }
     """
     
-    BINDINGS = [("q", "quit", "Quit Model"), ("r", "recalculate", "Force Refresh")]
+    BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh")]
 
     def compose(self) -> ComposeResult:
-        self.engine = RealisticScenarioEngine()
+        self.engine = RevenueLagEngine()
         
         yield Header()
         with Vertical(id="sidebar"):
-            yield Label("GROWTH CONFIG", classes="setting-group")
-            yield Label("Daily UA Marketing Spend ($):")
+            yield Label("MARKETING CAPITAL", classes="setting-group")
+            yield Label("Daily UA Spend ($):")
             yield Input(value=str(self.engine.daily_ua_spend), id="in_ua_spend")
-            yield Label("Target Cost Per Install / CPI ($):")
+            yield Label("Target CPI ($):")
             yield Input(value=str(self.engine.cpi), id="in_cpi")
-            yield Label("Virality K-Factor (%):")
-            yield Input(value=str(self.engine.virality_factor), id="in_virality")
             
-            yield Label("RETENTION (REALISTIC DECAY)", classes="setting-group")
-            yield Label("Expected Day 1 Retention (%):")
-            yield Input(value=str(self.engine.day_1_retention), id="in_d1")
-            
-            yield Label("MONETIZATION MATRICES", classes="setting-group")
-            yield Label("Conversion to Payer Ratio (%):")
+            yield Label("TUNABLE MONETIZATION", classes="setting-group")
+            yield Label("Payer Conversion Rate (0.03 = 3%):")
             yield Input(value=str(self.engine.payer_pct), id="in_payer_pct")
+            yield Label("Whale Tier Daily Spend ($):")
+            yield Input(value=str(self.engine.whale_spend), id="in_whale_spend")
+            yield Label("Video Ad eCPM ($):")
+            yield Input(value=str(self.engine.video_ecpm), id="in_video_ecpm")
+            
+            yield Label("FINANCIAL RUNWAY DELAY", classes="setting-group")
+            yield Label("Platform Payout Delay (Days):")
+            yield Input(value=str(self.engine.payout_delay_days), id="in_delay")
+            
+            yield Label("LIVE-OPS OPEX TIERING", classes="setting-group")
+            yield Label("Fixed Daily Base Staff ($):")
+            yield Input(value=str(self.engine.fixed_overhead_daily), id="in_fixed_ops")
+            yield Label("Server Cost per 1k DAU ($):")
+            yield Input(value=str(self.engine.server_cost_per_k_dau), id="in_server_k")
             
         with Vertical(id="main-content"):
             with TabbedContent():
-                with TabPane("Realistic 90-Day Financial Grid", id="tab_timeline"):
+                with TabPane("Launch Cash Flow Runway Analyzer", id="tab_timeline"):
                     yield DataTable(id="timeline_table")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#timeline_table", DataTable)
-        table.add_columns("Date", "Daily Installs", "Active DAU", "IAP Gross", "Ad Gross", "Net Cash Flow", "Cumulative Profit")
+        table.add_columns(
+            "Date", "Active DAU", "Accrued (Paper) Rev", 
+            "Settled Cash Inflow", "Real-time Expenses", 
+            "Net Cash Flow", "Cumulative Bank Account"
+        )
         table.cursor_type = "row"
         self.action_recalculate()
 
     def action_recalculate(self) -> None:
         try:
-            # Parse settings safely out of input UI widgets 
+            # Parse Growth & Operations inputs
             self.engine.daily_ua_spend = float(self.query_one("#in_ua_spend", Input).value)
             self.engine.cpi = float(self.query_one("#in_cpi", Input).value)
-            self.engine.virality_factor = float(self.query_one("#in_virality", Input).value)
-            self.engine.day_1_retention = float(self.query_one("#in_d1", Input).value)
+            self.engine.payout_delay_days = int(self.query_one("#in_delay", Input).value)
+            self.engine.fixed_overhead_daily = float(self.query_one("#in_fixed_ops", Input).value)
+            self.engine.server_cost_per_k_dau = float(self.query_one("#in_server_k", Input).value)
+            
+            # Parse newly exposed Monetization parameters
             self.engine.payer_pct = float(self.query_one("#in_payer_pct", Input).value)
+            self.engine.whale_spend = float(self.query_one("#in_whale_spend", Input).value)
+            self.engine.video_ecpm = float(self.query_one("#in_video_ecpm", Input).value)
         except ValueError:
-            return # Protect engine loop from partial string processing while typing
+            # Don't break if the user is in the middle of typing a decimal point
+            return 
             
         timeline_data = self.engine.calculate_90_days()
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
         
-        for idx, day in enumerate(timeline_data):
-            # Highlight cash-flow status
+        for day in timeline_data:
             cf_color = "[green]" if day["cash_flow"] >= 0 else "[span style=reverse] "
-            profit_color = "[green]" if day["cum_profit"] >= 0 else "[red]"
+            bank_color = "[green]" if day["bank_balance"] >= 0 else "[bold red]"
             
             table.add_row(
                 day["date"],
-                str(day["installs"]),
-                f"[bold cyan]{day['dau']}[/]",
-                f"${day['iap']:.2f}",
-                f"${day['ads']:.2f}",
+                f"{day['dau']:,}",
+                f"${day['accrued_rev']:.2f}",
+                f"${day['cash_inflow']:.2f}",
+                f"${day['ops_cost']:.2f}",
                 f"{cf_color}${day['cash_flow']:.2f}[/]",
-                f"{profit_color}${day['cum_profit']:.2f}[/]"
+                f"{bank_color}${day['bank_balance']:.2f}[/]"
             )
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        # Re-runs data processing loops dynamically on keystroke modifications
         self.action_recalculate()
 
 if __name__ == "__main__":
