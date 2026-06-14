@@ -390,15 +390,29 @@ class BusinessModelTUI(App):
     BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh"), ("escape", "unfocus", "Unfocus")]
 
     def action_unfocus(self) -> None:
+        focused = self.focused
+        if isinstance(focused, Input) and self._focus_original_value is not None:
+            if focused.value != self._focus_original_value:
+                focused.value = self._focus_original_value
+        self._focus_original_value = None
         self.set_focus(None)
+
+    def on_descendant_focus(self, event) -> None:
+        if isinstance(event.widget, Input):
+            self._focus_original_value = event.widget.value
+        else:
+            self._focus_original_value = None
 
     def on_key(self, event) -> None:
         if event.key not in ("up", "down"):
             return
         focused = self.focused
-        if focused is None or not isinstance(focused, Input):
-            return
         inputs = [i for i in self.query(Input).results() if not i.has_class("hidden")]
+        if focused is None or not isinstance(focused, Input):
+            if inputs:
+                inputs[0 if event.key == "down" else -1].focus()
+                event.prevent_default()
+            return
         try:
             idx = inputs.index(focused)
         except ValueError:
@@ -415,6 +429,7 @@ class BusinessModelTUI(App):
         super().__init__()
         self.store = ScenarioStore()
         self._loading_scenario = False
+        self._focus_original_value: str | None = None
 
     def compose(self) -> ComposeResult:
         self.engine = RevenueLagEngine()
@@ -443,57 +458,57 @@ class BusinessModelTUI(App):
 
             yield Label("MARKETING CAPITAL", classes="setting-group")
             yield Label("Daily UA Spend ($):")
-            yield Input(value=str(self.engine.daily_ua_spend), id="in_ua_spend")
+            yield Input(value=str(self.engine.daily_ua_spend), id="in_ua_spend", type="number")
             yield Label("Cost Per Install ($):")
-            yield Input(value=str(self.engine.cpi), id="in_cpi")
+            yield Input(value=str(self.engine.cpi), id="in_cpi", type="number")
             yield Label("CPI Saturation (compounds with scale):")
-            yield Input(value=str(self.engine.cpi_saturation), id="in_cpi_sat")
+            yield Input(value=str(self.engine.cpi_saturation), id="in_cpi_sat", type="number")
             yield Label("Burst / Influencer Installs per Day:")
-            yield Input(value=str(self.engine.influencer_installs), id="in_influencer")
+            yield Input(value=str(self.engine.influencer_installs), id="in_influencer", type="number")
 
             yield Label("GROWTH & RETENTION", classes="setting-group")
             yield Label("Organic Install Ratio (vs paid):")
-            yield Input(value=str(self.engine.organic_ratio), id="in_organic")
+            yield Input(value=str(self.engine.organic_ratio), id="in_organic", type="number")
             yield Label("Viral K-Factor (installs/user):")
-            yield Input(value=str(self.engine.virality_k_factor), id="in_kfactor")
+            yield Input(value=str(self.engine.virality_k_factor), id="in_kfactor", type="number")
             yield Label("D1 Retention (%):")
-            yield Input(value=str(self.engine.day_1_retention), id="in_d1_retention")
+            yield Input(value=str(self.engine.day_1_retention), id="in_d1_retention", type="number")
             yield Label("Retention Decay Rate:")
-            yield Input(value=str(self.engine.decay_exponent), id="in_decay")
+            yield Input(value=str(self.engine.decay_exponent), id="in_decay", type="number")
 
             yield Label("IAP MONETIZATION", classes="setting-group", id="lbl_iap")
             yield Label("Payer Conversion Rate (0.03 = 3%):", id="lbl_payer_pct")
-            yield Input(value=str(self.engine.payer_pct), id="in_payer_pct")
+            yield Input(value=str(self.engine.payer_pct), id="in_payer_pct", type="number")
             yield Label("Avg Whale Daily Spend ($):", id="lbl_whale")
-            yield Input(value=str(self.engine.whale_spend), id="in_whale_spend")
+            yield Input(value=str(self.engine.whale_spend), id="in_whale_spend", type="number")
 
             yield Label("AD REVENUE", classes="setting-group", id="lbl_ads")
             yield Label("Video Ad eCPM ($):", id="lbl_ecpm")
-            yield Input(value=str(self.engine.video_ecpm), id="in_video_ecpm")
+            yield Input(value=str(self.engine.video_ecpm), id="in_video_ecpm", type="number")
             yield Label("Ad Impressions / DAU / Day:", id="lbl_impressions")
-            yield Input(value=str(self.engine.video_impressions), id="in_video_impressions")
+            yield Input(value=str(self.engine.video_impressions), id="in_video_impressions", type="number")
 
             yield Label("PREMIUM PRICING", classes="setting-group", id="lbl_premium")
             yield Label("Game Price ($):", id="lbl_game_price")
-            yield Input(value=str(self.engine.game_price), id="in_game_price")
+            yield Input(value=str(self.engine.game_price), id="in_game_price", type="number")
 
             yield Label("AD REMOVAL IAP", classes="setting-group", id="lbl_remove_ads")
             yield Label("Ad Removal Price ($):", id="lbl_ad_removal_price")
-            yield Input(value=str(self.engine.ad_removal_price), id="in_ad_removal_price")
+            yield Input(value=str(self.engine.ad_removal_price), id="in_ad_removal_price", type="number")
             yield Label("Removal Conversion %:", id="lbl_ad_removal_pct")
-            yield Input(value=str(self.engine.ad_removal_pct), id="in_ad_removal_pct")
+            yield Input(value=str(self.engine.ad_removal_pct), id="in_ad_removal_pct", type="number")
 
             yield Label("PLATFORM FEES", classes="setting-group")
             yield Label("Platform Fee (0.30 = 30%):")
-            yield Input(value=str(self.engine.platform_fee), id="in_platform_fee")
+            yield Input(value=str(self.engine.platform_fee), id="in_platform_fee", type="number")
             yield Label("Platform Payout Delay (Days):")
-            yield Input(value=str(self.engine.payout_delay_days), id="in_delay")
+            yield Input(value=str(self.engine.payout_delay_days), id="in_delay", type="integer")
 
             yield Label("LIVE-OPS OPEX", classes="setting-group")
             yield Label("Fixed Daily Overhead ($):")
-            yield Input(value=str(self.engine.fixed_overhead_daily), id="in_fixed_ops")
+            yield Input(value=str(self.engine.fixed_overhead_daily), id="in_fixed_ops", type="number")
             yield Label("Server Cost per 1k DAU ($):")
-            yield Input(value=str(self.engine.server_cost_per_k_dau), id="in_server_k")
+            yield Input(value=str(self.engine.server_cost_per_k_dau), id="in_server_k", type="number")
 
         with Vertical(id="main-content"):
             with TabbedContent():
