@@ -194,6 +194,31 @@ class RevenueLagEngine:
         retained_rate = d1_rate * (days_alive ** -self.decay_exponent)
         return max(retained_rate, d1_rate * 0.12)
 
+    def calculate_lifetime(self, max_days: int = 365) -> float:
+        return sum(self.get_retention_rate(d) for d in range(max_days))
+
+    def calculate_ltv(self) -> float:
+        lifetime = self.calculate_lifetime()
+        daily_payer_spend = self.calculate_daily_payer_arppu()
+        ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+
+        if self.model_type == MODEL_PREMIUM:
+            return self.game_price * (1.0 - self.platform_fee)
+
+        if self.model_type == MODEL_REMOVE_ADS:
+            iap_ltv = self.ad_removal_pct * self.ad_removal_price * (1.0 - self.platform_fee)
+            ad_ltv = (1.0 - self.ad_removal_pct) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
+            return iap_ltv + ad_ltv
+
+        iap_arpu = self.payer_pct * daily_payer_spend
+        net_iap = iap_arpu * (1.0 - self.platform_fee)
+        net_ads = ad_arpu_per_dau * (1.0 - self.ad_mediation_tax)
+        return (net_iap + net_ads) * lifetime
+
+    def calculate_ltv_cpi_ratio(self) -> float:
+        ltv = self.calculate_ltv()
+        return ltv / self.cpi if self.cpi > 0 else float("inf")
+
     def calculate_timeline(self):
         all_days = []
         cumulative_bank_balance = 0.0
@@ -382,6 +407,13 @@ class BusinessModelTUI(App):
         min-width: 10;
         margin-right: 1;
     }
+    #kpi_summary {
+        padding: 0 1;
+        height: 3;
+        color: #a0a0a8;
+        background: #1c1c1f;
+        border-bottom: solid #2c2c2f;
+    }
     .hidden {
         display: none;
     }
@@ -408,10 +440,12 @@ class BusinessModelTUI(App):
             return
         focused = self.focused
         inputs = [i for i in self.query(Input).results() if not i.has_class("hidden")]
-        if focused is None or not isinstance(focused, Input):
+        if focused is None:
             if inputs:
                 inputs[0 if event.key == "down" else -1].focus()
                 event.prevent_default()
+            return
+        if not isinstance(focused, Input):
             return
         try:
             idx = inputs.index(focused)
@@ -513,6 +547,7 @@ class BusinessModelTUI(App):
         with Vertical(id="main-content"):
             with TabbedContent():
                 with TabPane("12-Month Runway", id="tab_timeline"):
+                    yield Label(id="kpi_summary")
                     yield DataTable(id="timeline_table")
                 with TabPane("Compare Scenarios", id="tab_compare"):
                     yield DataTable(id="compare_table")
@@ -529,7 +564,7 @@ class BusinessModelTUI(App):
 
         cmp = self.query_one("#compare_table", DataTable)
         cmp.add_columns(
-            "Scenario", "Model", "Peak DAU", "Total Accrued",
+            "Scenario", "Model", "Peak DAU", "LTV", "LTV:CPI",
             "Break-even", "Year-End Bank"
         )
         cmp.cursor_type = "row"
@@ -640,6 +675,21 @@ class BusinessModelTUI(App):
             return
 
         timeline_data = self.engine.calculate_timeline()
+
+        ltv = self.engine.calculate_ltv()
+        ratio = self.engine.calculate_ltv_cpi_ratio()
+        ratio_color = "[green]" if ratio >= 3.0 else ("[yellow]" if ratio >= 1.0 else "[bold red]")
+        peak_dau = max(d["dau"] for d in timeline_data)
+        final_bank = timeline_data[-1]["bank_balance"]
+        bank_color = "[green]" if final_bank >= 0 else "[bold red]"
+        self.query_one("#kpi_summary", Label).update(
+            f"LTV: [bold white]${ltv:.2f}[/]  ·  "
+            f"CPI: [bold white]${self.engine.cpi:.2f}[/]  ·  "
+            f"LTV:CPI: {ratio_color}[bold]{ratio:.2f}[/][/]  ·  "
+            f"Peak DAU: [bold white]{peak_dau:,}[/]  ·  "
+            f"Year-End: {bank_color}[bold]${final_bank:,.0f}[/][/]"
+        )
+
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
 
@@ -668,6 +718,9 @@ class BusinessModelTUI(App):
             summary = RevenueLagEngine.summarize_timeline(timeline)
             be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
             bank_color = "[green]" if summary["final_bank"] >= 0 else "[bold red]"
+            ltv = tmp_engine.calculate_ltv()
+            ratio = tmp_engine.calculate_ltv_cpi_ratio()
+            ratio_color = "[green]" if ratio >= 3.0 else ("[yellow]" if ratio >= 1.0 else "[bold red]")
             model_label = {
                 MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
             }.get(params.get("model_type", MODEL_F2P), "F2P")
@@ -675,7 +728,8 @@ class BusinessModelTUI(App):
                 name,
                 model_label,
                 f"{summary['peak_dau']:,}",
-                f"${summary['total_accrued']:,.2f}",
+                f"${ltv:.2f}",
+                f"{ratio_color}{ratio:.2f}[/]",
                 be,
                 f"{bank_color}${summary['final_bank']:,.2f}[/]",
             )
