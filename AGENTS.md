@@ -43,3 +43,5 @@ Everything in `runway.py` (~525 lines):
 - `scenarios.json` is auto-created from `DEFAULT_SCENARIOS` if missing. Delete it to reset to defaults.
 - Monthly rows show aggregated totals (summed revenue/expenses), not daily averages. Values will be ~30x larger than daily rows.
 - Removing `scenarios.json` is the only way to reset scenarios — there's no in-app "reset to defaults".
+- **Textual CSS ≠ web CSS.** Bare numbers are character cells (not pixels); `Input` height includes its border (so `height: 3` = 1 border + 1 content + 1 border); `Input` does not auto-fill width inside a `Vertical` (hence the base `Input { width: 100% }` rule). Vertical gaps between fields come from `Label { margin-top: 1 }`, not `Input` margins.
+- **Sidebar fields go through `labeled_input()`**, which yields a `Label` + `Input` pair with a derived label id (`in_foo` → `lbl_foo`). Add new fields by calling it; don't hand-place `Label`/`Input` separately. Group headers (`"IAP MONETIZATION"`, etc.) are standalone `Label(..., classes="setting-group")`.
