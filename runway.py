@@ -414,7 +414,17 @@ class BusinessModelTUI(App):
     }
     """
 
-    BINDINGS = [("q", "quit", "Exit Tool"), ("r", "recalculate", "Refresh"), ("escape", "unfocus", "Unfocus")]
+    BINDINGS = [("q", "quit", "Exit"), ("r", "recalculate", "Refresh"), ("s", "toggle_panel", "Switch Panel"), ("escape", "unfocus", "Unfocus")]
+
+    def action_toggle_panel(self) -> None:
+        self._panel_on_sidebar = not self._panel_on_sidebar
+        if self._panel_on_sidebar:
+            for w in self.query_one("#sidebar").walk_children():
+                if isinstance(w, Input):
+                    w.focus()
+                    return
+        else:
+            self.query_one("#timeline_table").focus()
 
     def action_unfocus(self) -> None:
         focused = self.focused
@@ -430,35 +440,12 @@ class BusinessModelTUI(App):
         else:
             self._focus_original_value = None
 
-    def on_key(self, event) -> None:
-        if event.key not in ("up", "down"):
-            return
-        focused = self.focused
-        inputs = [i for i in self.query(Input).results() if not i.has_class("hidden")]
-        if focused is None:
-            if inputs:
-                inputs[0 if event.key == "down" else -1].focus()
-                event.prevent_default()
-            return
-        if not isinstance(focused, Input):
-            return
-        try:
-            idx = inputs.index(focused)
-        except ValueError:
-            return
-        if event.key == "up" and idx > 0:
-            inputs[idx - 1].focus()
-        elif event.key == "down" and idx < len(inputs) - 1:
-            inputs[idx + 1].focus()
-        else:
-            return
-        event.prevent_default()
-
     def __init__(self):
         super().__init__()
         self.store = ScenarioStore()
         self._loading_scenario = False
         self._focus_original_value: str | None = None
+        self._panel_on_sidebar = True
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
