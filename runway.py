@@ -4,7 +4,8 @@ import math
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button
+from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button, Static
+from rich.text import Text
 
 SCENARIOS_FILE = Path("scenarios.json")
 
@@ -342,17 +343,19 @@ class BusinessModelTUI(App):
     }
     #sidebar {
         width: 46;
-        background: #1c1c1f;
-        border-right: solid #2c2c2f;
-        padding: 1;
+        background: $surface;
+        border-right: solid $primary-darken-2;
+        padding: 1 1 1 2;
+        scrollbar-gutter: stable;
         overflow-y: auto;
     }
     #main-content {
         width: 1fr;
+        padding: 0 1;
     }
     .setting-group {
-        background: #2a2a30;
-        color: #ff9933;
+        background: $primary-darken-2;
+        color: $warning;
         padding: 0 1;
         margin-top: 1;
         margin-bottom: 0;
@@ -360,7 +363,7 @@ class BusinessModelTUI(App):
     }
     Label {
         margin-top: 1;
-        color: #a0a0a8;
+        color: $text-muted;
         text-style: dim;
     }
     Input {
@@ -368,24 +371,32 @@ class BusinessModelTUI(App):
         border: none;
         height: 1;
         width: 100%;
-        background: #101012;
+        background: $surface-darken-1;
     }
     Input:focus {
-        background: #2a2a30;
+        background: $primary-darken-2;
+    }
+    Input.--invalid {
+        border: tall $error;
     }
     DataTable {
         height: 1fr;
         border: none;
+    }
+    DataTable > .datatable--header {
+        background: $primary-darken-2;
+        color: $text;
+        text-style: bold;
     }
     Select {
         width: 100%;
         margin-bottom: 0;
     }
     Select:focus > .select--current {
-        border: tall #ff9933;
+        border: tall $warning;
     }
     #scenario-bar {
-        height: 1;
+        height: auto;
         margin-bottom: 1;
     }
     .btn-sm {
@@ -394,25 +405,33 @@ class BusinessModelTUI(App):
         margin-right: 1;
         border: none;
     }
-    #kpi_summary {
+    Static#kpi_summary {
+        color: $text;
+        background: $surface;
+        border: none;
         padding: 0 1;
-        height: 3;
-        color: #a0a0a8;
-        background: #1c1c1f;
-        border-bottom: solid #2c2c2f;
+        height: auto;
+        margin-bottom: 0;
+    }
+    #validation_status {
+        color: $error;
+        height: auto;
+        margin-top: 0;
     }
     .hidden {
         display: none;
     }
     """
-
     BINDINGS = [("q", "quit", "Exit"), ("r", "recalculate", "Refresh"), ("s", "toggle_panel", "Switch Panel"), ("escape", "unfocus", "Unfocus")]
+
+    _panel_on_sidebar: bool = True
+    _focus_original_values: dict[str, str | None] = {}
 
     def action_toggle_panel(self) -> None:
         self._panel_on_sidebar = not self._panel_on_sidebar
         if self._panel_on_sidebar:
             for w in self.query_one("#sidebar").walk_children():
-                if isinstance(w, Input):
+                if isinstance(w, Input) and not w.disabled and w.display:
                     w.focus()
                     return
         else:
@@ -420,24 +439,26 @@ class BusinessModelTUI(App):
 
     def action_unfocus(self) -> None:
         focused = self.focused
-        if isinstance(focused, Input) and self._focus_original_value is not None:
-            if focused.value != self._focus_original_value:
-                focused.value = self._focus_original_value
-        self._focus_original_value = None
-        self.set_focus(None)
+        if isinstance(focused, Input):
+            original = self._focus_original_values.get(focused.id, focused.value)
+            if focused.value != original:
+                focused.value = original
+                self._focus_original_values[focused.id] = original
+                self.action_recalculate()
+            else:
+                self.set_focus(None)
+        else:
+            self.set_focus(None)
 
     def on_descendant_focus(self, event) -> None:
         if isinstance(event.widget, Input):
-            self._focus_original_value = event.widget.value
-        else:
-            self._focus_original_value = None
+            self._focus_original_values.setdefault(event.widget.id, event.widget.value)
 
     def __init__(self):
         super().__init__()
         self.store = ScenarioStore()
+        self.engine = RevenueLagEngine()
         self._loading_scenario = False
-        self._focus_original_value: str | None = None
-        self._panel_on_sidebar = True
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
@@ -468,6 +489,9 @@ class BusinessModelTUI(App):
             with Horizontal(id="scenario-bar"):
                 yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
                 yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
+                yield Button("Recalc", id="btn_recalc", variant="success", classes="btn-sm")
+
+            yield Label("", id="validation_status", classes="hidden")
 
             yield Label("BUSINESS MODEL", classes="setting-group")
             yield Label("Revenue Model:")
@@ -554,7 +578,7 @@ class BusinessModelTUI(App):
         with Vertical(id="main-content"):
             with TabbedContent():
                 with TabPane("12-Month Runway", id="tab_timeline"):
-                    yield Label(id="kpi_summary")
+                    yield Static(id="kpi_summary")
                     yield DataTable(id="timeline_table")
                 with TabPane("Compare Scenarios", id="tab_compare"):
                     yield DataTable(id="compare_table")
@@ -596,18 +620,21 @@ class BusinessModelTUI(App):
 
         for group, widget_ids in WIDGET_GROUPS.items():
             visible = show[group]
-            for wid in widget_ids:
-                widget = self.query_one(f"#{wid}")
-                widget.set_class(not visible, "hidden")
             header_id = {
                 "grp_iap": "lbl_iap", "grp_ads": "lbl_ads",
                 "grp_game_price": "lbl_premium", "grp_ad_removal": "lbl_remove_ads",
             }[group]
             header = self.query_one(f"#{header_id}")
             header.set_class(not visible, "hidden")
+            header.visible = visible
             for wid in widget_ids:
+                widget = self.query_one(f"#{wid}")
+                widget.disabled = not visible
+                widget.set_class(not visible, "hidden")
+                widget.visible = visible
                 label = self.query_one(f"#lbl_{wid[3:]}")
                 label.set_class(not visible, "hidden")
+                label.visible = visible
 
     def _load_scenario(self, name: str):
         params = self.store.get(name)
@@ -665,45 +692,55 @@ class BusinessModelTUI(App):
                     self.action_recalculate()
                 self._refresh_compare()
 
+        elif event.button.id == "btn_recalc":
+            self.action_recalculate()
+
     def action_recalculate(self) -> None:
-        try:
-            for attr, widget_id, cast_fn in EXPOSED_PARAMS:
-                widget = self.query_one(f"#{widget_id}", Input)
-                if widget.has_class("hidden"):
-                    continue
+        for attr, widget_id, cast_fn in EXPOSED_PARAMS:
+            widget = self.query_one(f"#{widget_id}", Input)
+            if widget.disabled or not widget.display:
+                continue
+            try:
                 setattr(self.engine, attr, cast_fn(widget.value))
-        except ValueError:
-            return
+            except ValueError:
+                self.query_one("#validation_status", Label).update(
+                    f"[bold red]Invalid value for {widget_id}[/]"
+                )
+                self.query_one("#validation_status").set_class(False, "hidden")
+                return
+
+        self.query_one("#validation_status", Label).update("")
+        self.query_one("#validation_status").set_class(True, "hidden")
 
         timeline_data = self.engine.calculate_timeline()
 
         ltv = self.engine.calculate_ltv()
         ratio = self.engine.calculate_ltv_cpi_ratio()
-        ratio_color = "[green]" if ratio >= 3.0 else ("[yellow]" if ratio >= 1.0 else "[bold red]")
+        ratio_color = "green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red")
         peak_dau = max(d["dau"] for d in timeline_data)
         final_bank = timeline_data[-1]["bank_balance"]
-        bank_color = "[green]" if final_bank >= 0 else "[bold red]"
-        self.query_one("#kpi_summary", Label).update(
+        bank_color = "green" if final_bank >= 0 else "bold red"
+        self.query_one("#kpi_summary", Static).update(
             f"LTV: [bold white]${ltv:.2f}[/]  ·  "
             f"CPI: [bold white]${self.engine.cpi:.2f}[/]  ·  "
-            f"LTV:CPI: {ratio_color}[bold]{ratio:.2f}[/][/]  ·  "
+            f"LTV:CPI: [{ratio_color} bold]{ratio:.2f}[/]  ·  "
             f"Peak DAU: [bold white]{peak_dau:,}[/]  ·  "
-            f"Year-End: {bank_color}[bold]${final_bank:,.0f}[/][/]"
+            f"Year-End: [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
 
         for day in timeline_data:
-            bank_color = "[green]" if day["bank_balance"] >= 0 else "[bold red]"
-
+            bank_text = Text(f"${day['bank_balance']:.2f}")
+            bank_text.stylize("green" if day["bank_balance"] >= 0 else "bold red")
             table.add_row(
                 day["date"],
                 f"{day['dau']:,}",
                 f"${day['accrued_rev']:.2f}",
                 f"${day['cash_inflow']:.2f}",
                 f"${day['ops_cost']:.2f}",
-                f"{bank_color}${day['bank_balance']:.2f}[/]"
+                bank_text,
             )
 
     def _refresh_compare(self):
@@ -718,10 +755,12 @@ class BusinessModelTUI(App):
             timeline = tmp_engine.calculate_timeline()
             summary = RevenueLagEngine.summarize_timeline(timeline)
             be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
-            bank_color = "[green]" if summary["final_bank"] >= 0 else "[bold red]"
             ltv = tmp_engine.calculate_ltv()
             ratio = tmp_engine.calculate_ltv_cpi_ratio()
-            ratio_color = "[green]" if ratio >= 3.0 else ("[yellow]" if ratio >= 1.0 else "[bold red]")
+            ratio_text = Text(f"{ratio:.2f}")
+            ratio_text.stylize("green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red"))
+            bank_text = Text(f"${summary['final_bank']:,.2f}")
+            bank_text.stylize("green" if summary["final_bank"] >= 0 else "bold red")
             model_label = {
                 MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
             }.get(params.get("model_type", MODEL_F2P), "F2P")
@@ -730,9 +769,9 @@ class BusinessModelTUI(App):
                 model_label,
                 f"{summary['peak_dau']:,}",
                 f"${ltv:.2f}",
-                f"{ratio_color}{ratio:.2f}[/]",
+                ratio_text,
                 be,
-                f"{bank_color}${summary['final_bank']:,.2f}[/]",
+                bank_text,
             )
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -740,7 +779,26 @@ class BusinessModelTUI(App):
             return
         if self._loading_scenario:
             return
+        event.input.add_class("pending")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.input.remove_class("pending")
+        self._focus_original_values[event.input.id] = event.input.value
         self.action_recalculate()
+
+    def on_blur(self, event: Input.Blur) -> None:
+        event.input.remove_class("pending")
+        self._focus_original_values[event.input.id] = event.input.value
+        self.action_recalculate()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "scenario_select" and event.value is not None:
+            self._load_scenario(str(event.value))
+            self.action_recalculate()
+        elif event.select.id == "model_type_select" and event.value is not None:
+            self.engine.model_type = str(event.value)
+            self._apply_model_visibility(str(event.value))
+            self.action_recalculate()
 
 
 if __name__ == "__main__":
