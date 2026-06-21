@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button, Static
+from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button, Static, Collapsible
 from rich.text import Text
 
 SCENARIOS_FILE = Path("scenarios.json")
@@ -41,13 +41,6 @@ EXPOSED_PARAMS = [
     ("ad_removal_pct", "in_ad_removal_pct", float),
     ("start_date", "in_start_date", str),
 ]
-
-WIDGET_GROUPS = {
-    "grp_iap": {"in_payer_pct", "in_whale_spend"},
-    "grp_ads": {"in_video_ecpm", "in_video_impressions"},
-    "grp_game_price": {"in_game_price"},
-    "grp_ad_removal": {"in_ad_removal_price", "in_ad_removal_pct"},
-}
 
 DEFAULT_SCENARIOS = {
     "F2P Base Case": {
@@ -341,17 +334,38 @@ class BusinessModelTUI(App):
     Screen {
         layout: horizontal;
     }
+    #app-body {
+        layout: horizontal;
+        height: 1fr;
+    }
     #sidebar {
-        width: 46;
+        width: 42;
         background: $surface;
         border-right: solid $primary-darken-2;
-        padding: 1 1 1 2;
+        padding: 1;
         scrollbar-gutter: stable;
         overflow-y: auto;
+    }
+    #sidebar-fixed {
+        height: auto;
+    }
+    #params-scroll {
+        height: 1fr;
+        overflow-y: auto;
+        padding-right: 1;
     }
     #main-content {
         width: 1fr;
         padding: 0 1;
+    }
+    .param-section {
+        margin-top: 0;
+        margin-bottom: 0;
+        padding: 0;
+        border: none;
+    }
+    .param-section.hidden {
+        display: none;
     }
     .setting-group {
         background: $primary-darken-2;
@@ -366,12 +380,21 @@ class BusinessModelTUI(App):
         color: $text-muted;
         text-style: dim;
     }
+    .field-label {
+        margin-top: 0;
+        margin-bottom: 0;
+        height: 1;
+        color: $text-muted;
+        text-style: dim;
+    }
     Input {
         margin-bottom: 0;
         border: none;
         height: 1;
         width: 100%;
         background: $surface-darken-1;
+        text-align: right;
+        padding: 0 1;
     }
     Input:focus {
         background: $primary-darken-2;
@@ -417,12 +440,11 @@ class BusinessModelTUI(App):
         color: $error;
         height: auto;
         margin-top: 0;
-    }
-    .hidden {
-        display: none;
+        margin-bottom: 1;
     }
     """
-    BINDINGS = [("q", "quit", "Exit"), ("r", "recalculate", "Refresh"), ("s", "toggle_panel", "Switch Panel"), ("escape", "unfocus", "Unfocus")]
+
+    BINDINGS = [("q", "quit", "Exit"), ("r", "recalculate", "Refresh"), ("s", "toggle_panel", "Switch Panel"), ("escape", "unfocus", "Revert")]
 
     _panel_on_sidebar: bool = True
     _focus_original_values: dict[str, str | None] = {}
@@ -430,10 +452,8 @@ class BusinessModelTUI(App):
     def action_toggle_panel(self) -> None:
         self._panel_on_sidebar = not self._panel_on_sidebar
         if self._panel_on_sidebar:
-            for w in self.query_one("#sidebar").walk_children():
-                if isinstance(w, Input) and not w.disabled and w.display:
-                    w.focus()
-                    return
+            first = self.query_one("#model_type_select", Select)
+            first.focus()
         else:
             self.query_one("#timeline_table").focus()
 
@@ -456,6 +476,8 @@ class BusinessModelTUI(App):
 
     def __init__(self):
         super().__init__()
+        self.title = "Runway"
+        self.sub_title = "12-Month Financial Runway Simulator"
         self.store = ScenarioStore()
         self.engine = RevenueLagEngine()
         self._loading_scenario = False
@@ -463,15 +485,17 @@ class BusinessModelTUI(App):
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
     ) -> ComposeResult:
-        # Always emit Label + Input as a pair. The label id is derived from
-        # the input id (in_* -> lbl_*), so visibility toggles can find the
-        # label for any input by convention instead of a lookup map.
         label_id = "lbl_" + input_id[len("in_"):]
-        yield Label(label_text, id=label_id)
+        yield Label(label_text, id=label_id, classes="field-label")
         if type is None:
-            yield Input(value=str(value), id=input_id)
+            yield Input(value=str(value), id=input_id, classes="field-input")
         else:
-            yield Input(value=str(value), id=input_id, type=type)
+            yield Input(value=str(value), id=input_id, type=type, classes="field-input")
+
+    def section(self, title: str, *children, collapsed: bool = True, section_id: str | None = None):
+        with Collapsible(title=title, collapsed=collapsed, classes="param-section", id=section_id):
+            for child in children:
+                yield from child
 
     def compose(self) -> ComposeResult:
         self.engine = RevenueLagEngine()
@@ -480,108 +504,87 @@ class BusinessModelTUI(App):
         first_scenario = scenario_options[0][0] if scenario_options else None
 
         yield Header()
-        with Vertical(id="sidebar"):
-            yield Label("SCENARIO", classes="setting-group")
-            yield Label("Active Scenario:")
-            yield Select(scenario_options, value=first_scenario, id="scenario_select")
-            yield Label("New Scenario Name:")
-            yield Input(placeholder="Type name, then Save", id="in_scenario_name")
-            with Horizontal(id="scenario-bar"):
-                yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
-                yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
-                yield Button("Recalc", id="btn_recalc", variant="success", classes="btn-sm")
+        with Horizontal(id="app-body"):
+            with Vertical(id="sidebar"):
+                with Vertical(id="sidebar-fixed"):
+                    yield Label("SCENARIO", classes="setting-group")
+                    yield Label("Active Scenario:")
+                    yield Select(scenario_options, value=first_scenario, id="scenario_select")
+                    yield Label("New Scenario Name:")
+                    yield Input(placeholder="Type name, then Save", id="in_scenario_name")
+                    with Horizontal(id="scenario-bar"):
+                        yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
+                        yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
+                        yield Button("Recalc", id="btn_recalc", variant="success", classes="btn-sm")
 
-            yield Label("", id="validation_status", classes="hidden")
+                    yield Label("", id="validation_status", classes="hidden")
 
-            yield Label("BUSINESS MODEL", classes="setting-group")
-            yield Label("Revenue Model:")
-            yield Select(MODEL_OPTIONS, value=MODEL_F2P, id="model_type_select")
+                    yield Label("BUSINESS MODEL", classes="setting-group")
+                    yield Label("Revenue Model:")
+                    yield Select(MODEL_OPTIONS, value=MODEL_F2P, id="model_type_select")
 
-            yield Label("LAUNCH DATE", classes="setting-group")
-            yield from self.labeled_input(
-                "Start Date (YYYY-MM-DD):", "in_start_date", self.engine.start_date, type=None
-            )
+                with Vertical(id="params-scroll"):
+                    yield from self.section(
+                        "Launch Date",
+                        self.labeled_input("Start Date (YYYY-MM-DD):", "in_start_date", self.engine.start_date, type=None),
+                        collapsed=False,
+                    )
+                    yield from self.section(
+                        "Marketing Capital",
+                        self.labeled_input("Daily UA Spend ($):", "in_ua_spend", self.engine.daily_ua_spend),
+                        self.labeled_input("Cost Per Install ($):", "in_cpi", self.engine.cpi),
+                        self.labeled_input("CPI Saturation:", "in_cpi_sat", self.engine.cpi_saturation),
+                        self.labeled_input("Burst Installs/Day:", "in_influencer", self.engine.influencer_installs),
+                        collapsed=False,
+                    )
+                    yield from self.section(
+                        "Growth & Retention",
+                        self.labeled_input("Organic Ratio:", "in_organic", self.engine.organic_ratio),
+                        self.labeled_input("Viral K-Factor:", "in_kfactor", self.engine.virality_k_factor),
+                        self.labeled_input("D1 Retention (%):", "in_d1_retention", self.engine.day_1_retention),
+                        self.labeled_input("Retention Decay:", "in_decay", self.engine.decay_exponent),
+                    )
+                    yield from self.section(
+                        "IAP Monetization",
+                        self.labeled_input("Payer Conversion:", "in_payer_pct", self.engine.payer_pct),
+                        self.labeled_input("Whale Daily Spend ($):", "in_whale_spend", self.engine.whale_spend),
+                        section_id="sec_iap",
+                    )
+                    yield from self.section(
+                        "Ad Revenue",
+                        self.labeled_input("Video eCPM ($):", "in_video_ecpm", self.engine.video_ecpm),
+                        self.labeled_input("Impressions/DAU/Day:", "in_video_impressions", self.engine.video_impressions),
+                        section_id="sec_ads",
+                    )
+                    yield from self.section(
+                        "Premium Pricing",
+                        self.labeled_input("Game Price ($):", "in_game_price", self.engine.game_price),
+                        section_id="sec_premium",
+                    )
+                    yield from self.section(
+                        "Ad Removal IAP",
+                        self.labeled_input("Removal Price ($):", "in_ad_removal_price", self.engine.ad_removal_price),
+                        self.labeled_input("Removal Conversion (%):", "in_ad_removal_pct", self.engine.ad_removal_pct),
+                        section_id="sec_remove_ads",
+                    )
+                    yield from self.section(
+                        "Platform Fees",
+                        self.labeled_input("Platform Fee:", "in_platform_fee", self.engine.platform_fee),
+                        self.labeled_input("Payout Delay (Days):", "in_delay", self.engine.payout_delay_days, type="integer"),
+                    )
+                    yield from self.section(
+                        "Live-Ops OpEx",
+                        self.labeled_input("Fixed Daily Overhead ($):", "in_fixed_ops", self.engine.fixed_overhead_daily),
+                        self.labeled_input("Server Cost per 1k DAU:", "in_server_k", self.engine.server_cost_per_k_dau),
+                    )
 
-            yield Label("MARKETING CAPITAL", classes="setting-group")
-            yield from self.labeled_input(
-                "Daily UA Spend ($):", "in_ua_spend", self.engine.daily_ua_spend
-            )
-            yield from self.labeled_input(
-                "Cost Per Install ($):", "in_cpi", self.engine.cpi
-            )
-            yield from self.labeled_input(
-                "CPI Saturation (compounds with scale):", "in_cpi_sat", self.engine.cpi_saturation
-            )
-            yield from self.labeled_input(
-                "Burst / Influencer Installs per Day:", "in_influencer", self.engine.influencer_installs
-            )
-
-            yield Label("GROWTH & RETENTION", classes="setting-group")
-            yield from self.labeled_input(
-                "Organic Install Ratio (vs paid):", "in_organic", self.engine.organic_ratio
-            )
-            yield from self.labeled_input(
-                "Viral K-Factor (installs/user):", "in_kfactor", self.engine.virality_k_factor
-            )
-            yield from self.labeled_input(
-                "D1 Retention (%):", "in_d1_retention", self.engine.day_1_retention
-            )
-            yield from self.labeled_input(
-                "Retention Decay Rate:", "in_decay", self.engine.decay_exponent
-            )
-
-            yield Label("IAP MONETIZATION", classes="setting-group", id="lbl_iap")
-            yield from self.labeled_input(
-                "Payer Conversion Rate (0.03 = 3%):", "in_payer_pct", self.engine.payer_pct
-            )
-            yield from self.labeled_input(
-                "Avg Whale Daily Spend ($):", "in_whale_spend", self.engine.whale_spend
-            )
-
-            yield Label("AD REVENUE", classes="setting-group", id="lbl_ads")
-            yield from self.labeled_input(
-                "Video Ad eCPM ($):", "in_video_ecpm", self.engine.video_ecpm
-            )
-            yield from self.labeled_input(
-                "Ad Impressions / DAU / Day:", "in_video_impressions", self.engine.video_impressions
-            )
-
-            yield Label("PREMIUM PRICING", classes="setting-group", id="lbl_premium")
-            yield from self.labeled_input(
-                "Game Price ($):", "in_game_price", self.engine.game_price
-            )
-
-            yield Label("AD REMOVAL IAP", classes="setting-group", id="lbl_remove_ads")
-            yield from self.labeled_input(
-                "Ad Removal Price ($):", "in_ad_removal_price", self.engine.ad_removal_price
-            )
-            yield from self.labeled_input(
-                "Removal Conversion %:", "in_ad_removal_pct", self.engine.ad_removal_pct
-            )
-
-            yield Label("PLATFORM FEES", classes="setting-group")
-            yield from self.labeled_input(
-                "Platform Fee (0.30 = 30%):", "in_platform_fee", self.engine.platform_fee
-            )
-            yield from self.labeled_input(
-                "Platform Payout Delay (Days):", "in_delay", self.engine.payout_delay_days, type="integer"
-            )
-
-            yield Label("LIVE-OPS OPEX", classes="setting-group")
-            yield from self.labeled_input(
-                "Fixed Daily Overhead ($):", "in_fixed_ops", self.engine.fixed_overhead_daily
-            )
-            yield from self.labeled_input(
-                "Server Cost per 1k DAU ($):", "in_server_k", self.engine.server_cost_per_k_dau
-            )
-
-        with Vertical(id="main-content"):
-            with TabbedContent():
-                with TabPane("12-Month Runway", id="tab_timeline"):
-                    yield Static(id="kpi_summary")
-                    yield DataTable(id="timeline_table")
-                with TabPane("Compare Scenarios", id="tab_compare"):
-                    yield DataTable(id="compare_table")
+            with Vertical(id="main-content"):
+                with TabbedContent():
+                    with TabPane("12-Month Runway", id="tab_timeline"):
+                        yield Static(id="kpi_summary")
+                        yield DataTable(id="timeline_table")
+                    with TabPane("Compare Scenarios", id="tab_compare"):
+                        yield DataTable(id="compare_table")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -607,34 +610,24 @@ class BusinessModelTUI(App):
         self._refresh_compare()
 
     def _apply_model_visibility(self, model_type: str):
-        show = {"grp_iap": False, "grp_ads": False, "grp_game_price": False, "grp_ad_removal": False}
+        show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_remove_ads": False}
 
         if model_type == MODEL_F2P:
-            show["grp_iap"] = True
-            show["grp_ads"] = True
+            show["sec_iap"] = True
+            show["sec_ads"] = True
         elif model_type == MODEL_PREMIUM:
-            show["grp_game_price"] = True
+            show["sec_premium"] = True
         elif model_type == MODEL_REMOVE_ADS:
-            show["grp_ads"] = True
-            show["grp_ad_removal"] = True
+            show["sec_ads"] = True
+            show["sec_remove_ads"] = True
 
-        for group, widget_ids in WIDGET_GROUPS.items():
-            visible = show[group]
-            header_id = {
-                "grp_iap": "lbl_iap", "grp_ads": "lbl_ads",
-                "grp_game_price": "lbl_premium", "grp_ad_removal": "lbl_remove_ads",
-            }[group]
-            header = self.query_one(f"#{header_id}")
-            header.set_class(not visible, "hidden")
-            header.visible = visible
-            for wid in widget_ids:
-                widget = self.query_one(f"#{wid}")
-                widget.disabled = not visible
-                widget.set_class(not visible, "hidden")
-                widget.visible = visible
-                label = self.query_one(f"#lbl_{wid[3:]}")
-                label.set_class(not visible, "hidden")
-                label.visible = visible
+        for section_id, visible in show.items():
+            section = self.query_one(f"#{section_id}", Collapsible)
+            section.set_class(not visible, "hidden")
+            section.visible = visible
+            for widget in section.walk_children():
+                if isinstance(widget, Input):
+                    widget.disabled = not visible
 
     def _load_scenario(self, name: str):
         params = self.store.get(name)
@@ -659,15 +652,6 @@ class BusinessModelTUI(App):
             select.value = active_name
         elif names:
             select.value = names[0]
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "scenario_select" and event.value is not None:
-            self._load_scenario(str(event.value))
-            self.action_recalculate()
-        elif event.select.id == "model_type_select" and event.value is not None:
-            self.engine.model_type = str(event.value)
-            self._apply_model_visibility(str(event.value))
-            self.action_recalculate()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_save":
