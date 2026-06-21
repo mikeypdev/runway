@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button
 
 SCENARIOS_FILE = Path("scenarios.json")
@@ -365,13 +365,13 @@ class BusinessModelTUI(App):
     }
     Input {
         margin-bottom: 0;
-        border: solid #3a3a40;
-        height: 3;
+        border: none;
+        height: 1;
         width: 100%;
         background: #101012;
     }
     Input:focus {
-        border: solid #ff9933;
+        background: #2a2a30;
     }
     DataTable {
         height: 1fr;
@@ -380,27 +380,19 @@ class BusinessModelTUI(App):
     Select {
         width: 100%;
         margin-bottom: 0;
-        height: 5;
     }
-    Select:focus {
-        border: solid #ff9933;
-    }
-    Select > .select--current {
-        color: $text;
-        background: #101012;
-        height: 3;
+    Select:focus > .select--current {
+        border: tall #ff9933;
     }
     #scenario-bar {
-        height: auto;
+        height: 1;
         margin-bottom: 1;
     }
-    #scenario-bar Horizontal {
-        height: auto;
-    }
     .btn-sm {
-        height: 3;
+        height: 1;
         min-width: 10;
         margin-right: 1;
+        border: none;
     }
     #kpi_summary {
         padding: 0 1;
@@ -473,7 +465,7 @@ class BusinessModelTUI(App):
             yield Select(scenario_options, value=first_scenario, id="scenario_select")
             yield Label("New Scenario Name:")
             yield Input(placeholder="Type name, then Save", id="in_scenario_name")
-            with Vertical(id="scenario-bar"):
+            with Horizontal(id="scenario-bar"):
                 yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
                 yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
 
