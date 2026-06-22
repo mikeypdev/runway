@@ -360,7 +360,7 @@ class BusinessModelTUI(App):
     }
     .param-section {
         margin-top: 0;
-        margin-bottom: 0;
+        margin-bottom: 1;
         padding: 0;
         border: none;
     }
@@ -727,36 +727,42 @@ class BusinessModelTUI(App):
                 bank_text,
             )
 
+        self._refresh_compare()
+
     def _refresh_compare(self):
         cmp = self.query_one("#compare_table", DataTable)
         cmp.clear()
+        self._add_compare_row(cmp, "(Current)", self.engine)
         for name in self.store.list_names():
             params = self.store.get(name)
             if not params:
                 continue
             tmp_engine = RevenueLagEngine()
             tmp_engine.apply_params(params)
-            timeline = tmp_engine.calculate_timeline()
-            summary = RevenueLagEngine.summarize_timeline(timeline)
-            be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
-            ltv = tmp_engine.calculate_ltv()
-            ratio = tmp_engine.calculate_ltv_cpi_ratio()
-            ratio_text = Text(f"{ratio:.2f}")
-            ratio_text.stylize("green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red"))
-            bank_text = Text(f"${summary['final_bank']:,.2f}")
-            bank_text.stylize("green" if summary["final_bank"] >= 0 else "bold red")
-            model_label = {
-                MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
-            }.get(params.get("model_type", MODEL_F2P), "F2P")
-            cmp.add_row(
-                name,
-                model_label,
-                f"{summary['peak_dau']:,}",
-                f"${ltv:.2f}",
-                ratio_text,
-                be,
-                bank_text,
-            )
+            self._add_compare_row(cmp, name, tmp_engine)
+
+    def _add_compare_row(self, cmp, name, engine):
+        timeline = engine.calculate_timeline()
+        summary = RevenueLagEngine.summarize_timeline(timeline)
+        be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
+        ltv = engine.calculate_ltv()
+        ratio = engine.calculate_ltv_cpi_ratio()
+        ratio_text = Text(f"{ratio:.2f}")
+        ratio_text.stylize("green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red"))
+        bank_text = Text(f"${summary['final_bank']:,.2f}")
+        bank_text.stylize("green" if summary["final_bank"] >= 0 else "bold red")
+        model_label = {
+            MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
+        }.get(engine.model_type, "F2P")
+        cmp.add_row(
+            name,
+            model_label,
+            f"{summary['peak_dau']:,}",
+            f"${ltv:.2f}",
+            ratio_text,
+            be,
+            bank_text,
+        )
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "in_scenario_name":
@@ -764,6 +770,7 @@ class BusinessModelTUI(App):
         if self._loading_scenario:
             return
         event.input.add_class("pending")
+        self.action_recalculate()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.input.remove_class("pending")
