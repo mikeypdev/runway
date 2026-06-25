@@ -328,6 +328,44 @@ class RevenueLagEngine:
             "break_even_day": break_even,
         }
 
+    def get_final_bank(self) -> float:
+        timeline = self.calculate_timeline()
+        return timeline[-1]["bank_balance"]
+
+    def get_ltv_cpi(self) -> float:
+        return self.calculate_ltv_cpi_ratio()
+
+    def solve_parameter(self, param_name: str, target_fn, target_val: float, low: float, high: float, max_iters: int = 15) -> float | None:
+        orig = getattr(self, param_name)
+        try:
+            setattr(self, param_name, low)
+            val_low = target_fn()
+            
+            setattr(self, param_name, high)
+            val_high = target_fn()
+            
+            min_val = min(val_low, val_high)
+            max_val = max(val_low, val_high)
+            if not (min_val <= target_val <= max_val):
+                return None
+            
+            increasing = val_high > val_low
+            
+            for _ in range(max_iters):
+                mid = (low + high) / 2.0
+                setattr(self, param_name, mid)
+                val_mid = target_fn()
+                
+                if (val_mid > target_val if increasing else val_mid < target_val):
+                    high = mid
+                else:
+                    low = mid
+            return (low + high) / 2.0
+        except Exception:
+            return None
+        finally:
+            setattr(self, param_name, orig)
+
 
 class BusinessModelTUI(App):
     CSS = """
@@ -442,9 +480,26 @@ class BusinessModelTUI(App):
         margin-top: 0;
         margin-bottom: 1;
     }
+    #solver_instructions {
+        color: $text-muted;
+        background: $surface;
+        padding: 1;
+        height: auto;
+        margin-bottom: 1;
+        text-style: italic;
+    }
     """
 
-    BINDINGS = [("q", "quit", "Exit"), ("r", "recalculate", "Refresh"), ("s", "toggle_panel", "Switch Panel"), ("escape", "unfocus", "Revert")]
+    BINDINGS = [
+        ("q", "quit", "Exit"), 
+        ("r", "refresh_solver", "Solve"), 
+        ("t", "next_tab", "Next Tab"),
+        ("1", "apply_1", "Apply CPI"),
+        ("2", "apply_2", "Apply D1 Ret"),
+        ("3", "apply_3", "Apply Monetiz"),
+        ("s", "toggle_panel", "Switch Panel"), 
+        ("escape", "unfocus", "Revert")
+    ]
 
     _panel_on_sidebar: bool = True
     _focus_original_values: dict[str, str | None] = {}
@@ -515,7 +570,7 @@ class BusinessModelTUI(App):
                     with Horizontal(id="scenario-bar"):
                         yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
                         yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
-                        yield Button("Recalc", id="btn_recalc", variant="success", classes="btn-sm")
+                        yield Button("Solve", id="btn_solve", variant="success", classes="btn-sm")
 
                     yield Label("", id="validation_status", classes="hidden")
 
@@ -585,6 +640,9 @@ class BusinessModelTUI(App):
                         yield DataTable(id="timeline_table")
                     with TabPane("Compare Scenarios", id="tab_compare"):
                         yield DataTable(id="compare_table")
+                    with TabPane("Target Solver", id="tab_solver"):
+                        yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press 1, 2, or 3 to apply.[/]", id="solver_instructions")
+                        yield Static("", id="solver_output")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -676,7 +734,8 @@ class BusinessModelTUI(App):
                     self.action_recalculate()
                 self._refresh_compare()
 
-        elif event.button.id == "btn_recalc":
+        elif event.button.id == "btn_solve":
+            self.action_refresh_solver()
             self.action_recalculate()
 
     def action_recalculate(self) -> None:
@@ -729,6 +788,70 @@ class BusinessModelTUI(App):
 
         self._refresh_compare()
 
+
+    def action_refresh_solver(self) -> None:
+        """Refresh the solver output."""
+        self._refresh_solver_table()
+
+    def action_next_tab(self) -> None:
+        """Switch to the next tab."""
+        tabs = self.query_one("TabbedContent")
+        pane_ids = ["tab_timeline", "tab_compare", "tab_solver"]
+        current = tabs.active
+        if isinstance(current, str) and current in pane_ids:
+            idx = pane_ids.index(current)
+            tabs.active = pane_ids[(idx + 1) % len(pane_ids)]
+
+    def _set_input_value(self, widget_id: str, raw_val: float | None):
+        """Apply a solved parameter value to the sidebar input field."""
+        if raw_val is None:
+            self.query_one("#validation_status", Label).update("[red]Value infeasible for current model")
+            self.query_one("#validation_status").set_class(False, "hidden")
+            return
+        try:
+            widget = self.query_one(f"#{widget_id}", Input)
+            widget.value = f"{raw_val}"
+            self.action_recalculate()
+        except Exception:
+            pass
+
+    def action_apply_1(self) -> None:
+        """Apply CPI breakeven value from solver."""
+        if not hasattr(self, '_solver_results') or not self._solver_results:
+            return
+        tabs = self.query_one(TabbedContent)
+        if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
+            return
+        self._set_input_value("in_cpi", self._solver_results.get("cpi_be"))
+
+    def action_apply_2(self) -> None:
+        """Apply D1 Retention breakeven value from solver."""
+        if not hasattr(self, '_solver_results') or not self._solver_results:
+            return
+        tabs = self.query_one(TabbedContent)
+        if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
+            return
+        self._set_input_value("in_d1_retention", self._solver_results.get("d1_be"))
+
+    def action_apply_3(self) -> None:
+        """Apply monetization breakeven value from solver."""
+        if not hasattr(self, '_solver_results') or not self._solver_results:
+            return
+        tabs = self.query_one(TabbedContent)
+        if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
+            return
+        r = self._solver_results
+        self._set_input_value(r["mon_id"], r.get("mon_be"))
+
+    def _refresh_solver_tab_if_active(self):
+        """Only compute solver when tab is visible to avoid startup delay."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            if isinstance(tabs.active, str) and tabs.active == "tab_solver":
+                self._refresh_solver_table()
+        except Exception:
+            pass
+
     def _refresh_compare(self):
         cmp = self.query_one("#compare_table", DataTable)
         cmp.clear()
@@ -764,6 +887,100 @@ class BusinessModelTUI(App):
             bank_text,
         )
 
+    def _refresh_solver_table(self):
+        """Compute and display solver results as Rich markup in the Static widget."""
+        output = self.query_one("#solver_output", Static)
+
+        cpi_be = self.engine.solve_parameter("cpi", self.engine.get_final_bank, 0.0, 0.01, 20.0)
+        cpi_ltv = self.engine.calculate_ltv() / 3.0 if self.engine.calculate_ltv() > 0 else None
+
+        d1_be = self.engine.solve_parameter("day_1_retention", self.engine.get_final_bank, 0.0, 1.0, 99.0)
+        d1_ltv = self.engine.solve_parameter("day_1_retention", self.engine.get_ltv_cpi, 3.0, 1.0, 99.0)
+
+        if self.engine.model_type == MODEL_PREMIUM:
+            mon_label = "Game Price"
+            mon_id = "in_game_price"
+            mon_curr_raw = self.engine.game_price
+            mon_curr_disp = f"${mon_curr_raw:.2f}"
+            mon_be = self.engine.solve_parameter("game_price", self.engine.get_final_bank, 0.0, 0.49, 100.0)
+            mon_ltv = self.engine.solve_parameter("game_price", self.engine.get_ltv_cpi, 3.0, 0.49, 100.0)
+            mon_is_pct = False
+            mon_is_currency = True
+        elif self.engine.model_type == MODEL_REMOVE_ADS:
+            mon_label = "Ad Removal Conv"
+            mon_id = "in_ad_removal_pct"
+            mon_curr_raw = self.engine.ad_removal_pct
+            mon_curr_disp = f"{mon_curr_raw*100:.1f}%"
+            mon_be = self.engine.solve_parameter("ad_removal_pct", self.engine.get_final_bank, 0.0, 0.0, 1.0)
+            mon_ltv = self.engine.solve_parameter("ad_removal_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 1.0)
+            mon_is_pct = True
+            mon_is_currency = False
+        else:
+            mon_label = "Payer Conv"
+            mon_id = "in_payer_pct"
+            mon_curr_raw = self.engine.payer_pct
+            mon_curr_disp = f"{mon_curr_raw*100:.1f}%"
+            mon_be = self.engine.solve_parameter("payer_pct", self.engine.get_final_bank, 0.0, 0.0, 1.0)
+            mon_ltv = self.engine.solve_parameter("payer_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 1.0)
+            mon_is_pct = True
+            mon_is_currency = False
+
+        def fmt_target(val, is_pct, is_currency, current_metric, target):
+            """Format solver result with status indicator."""
+            if val is None:
+                # Solver couldn't find a solution
+                if current_metric >= target:
+                    return "[dim yellow]already met ✓[/]"
+                else:
+                    return "[dim red]unachievable[/]"
+            v = val * 100.0 if is_pct else val
+            return f"[bold green]${v:.2f}[/]" if is_currency else f"[bold green]{v:.1f}%[/]"
+
+        # Get current metrics for status checking
+        current_bank = self.engine.get_final_bank()
+        current_ratio = self.engine.calculate_ltv_cpi_ratio()
+
+        cpi_be_s = fmt_target(cpi_be, False, True, current_bank, 0.0)
+        cpi_ltv_s = fmt_target(cpi_ltv, False, True, current_ratio, 3.0)
+        d1_be_s = fmt_target(d1_be, False, False, current_bank, 0.0)
+        d1_ltv_s = fmt_target(d1_ltv, False, False, current_ratio, 3.0)
+        mon_be_s = fmt_target(mon_be, mon_is_pct, mon_is_currency, current_bank, 0.0)
+        mon_ltv_s = fmt_target(mon_ltv, mon_is_pct, mon_is_currency, current_ratio, 3.0)
+
+        lines = [
+            "",
+            f"[bold cyan]Solving for these goals:[/]",
+            "",
+            f"  [bold]Goal 1:[/] Year-End Breakeven (cash balance ≥ $0 at 12 months)",
+            f"  [bold]Goal 2:[/] LTV:CPI ratio ≥ 3.0",
+            "",
+            f"[bold cyan]Goal 1: Breakeven[/]  Press [bold white]1[/] to set CPI",
+            "",
+            f"  CPI must be ≤ {cpi_be_s}          (current: ${self.engine.cpi:.2f})",
+            f"  D1 Retention must be ≥ {d1_be_s}  (current: {self.engine.day_1_retention:.1f}%)",
+            f"  {mon_label} must be ≥ {mon_be_s}  (current: {mon_curr_disp})",
+            "",
+            f"[bold cyan]Goal 2: LTV:CPI >= 3.0[/]  Press [bold white]2[/] to set D1 Ret, [bold white]3[/] to set {mon_label}",
+            "",
+            f"  CPI must be ≤ {cpi_ltv_s}          (current: ${self.engine.cpi:.2f})",
+            f"  D1 Retention must be ≥ {d1_ltv_s}  (current: {self.engine.day_1_retention:.1f}%)",
+            f"  {mon_label} must be ≥ {mon_ltv_s}  (current: {mon_curr_disp})",
+            "",
+            f"[dim]Press [1] [2] [3] to apply the green value to the sidebar. Press [t] to switch tabs.[/]",
+        ]
+        output.update("\n".join(lines))
+
+        self._solver_results = {
+            "cpi_be": cpi_be,
+            "cpi_ltv": cpi_ltv,
+            "d1_be": d1_be,
+            "d1_ltv": d1_ltv,
+            "mon_id": mon_id,
+            "mon_be": mon_be,
+            "mon_ltv": mon_ltv,
+            "mon_is_pct": mon_is_pct,
+        }
+
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "in_scenario_name":
             return
@@ -790,6 +1007,10 @@ class BusinessModelTUI(App):
             self.engine.model_type = str(event.value)
             self._apply_model_visibility(str(event.value))
             self.action_recalculate()
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if getattr(event.pane, 'id', None) == "tab_solver":
+            self._refresh_solver_table()
 
 
 if __name__ == "__main__":
