@@ -13,7 +13,7 @@ A single-file Python TUI application that models a free-to-play mobile game's 12
 
 No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key packages: `textual`, `rich`.
 
-**Key bindings:** `r` recalculate, `t` switch tab, `1`/`2`/`3` apply solver values (on Target Solver tab), `q` quit. All inputs auto-recalculate on every keystroke.
+**Key bindings:** `ctrl+r` recalculate, `ctrl+t` switch tab, `ctrl+s` switch panel, `ctrl+1`/`ctrl+2`/`ctrl+3` apply solver values (on Target Solver tab), `ctrl+q` quit, `escape` revert/unfocus. All shortcuts use Ctrl modifiers to avoid conflicts with text input.
 
 ## Architecture
 

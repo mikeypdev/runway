@@ -444,6 +444,17 @@ class BusinessModelTUI(App):
         height: 1fr;
         border: none;
     }
+    DataTable:focus {
+        border: tall $accent;
+    }
+    #focus_indicator {
+        color: $text-muted;
+        background: $surface;
+        padding: 0 1;
+        height: 1;
+        margin-bottom: 0;
+        text-style: italic;
+    }
     DataTable > .datatable--header {
         background: $primary-darken-2;
         color: $text;
@@ -491,25 +502,38 @@ class BusinessModelTUI(App):
     """
 
     BINDINGS = [
-        ("q", "quit", "Exit"), 
-        ("r", "refresh_solver", "Solve"), 
-        ("t", "next_tab", "Next Tab"),
-        ("1", "apply_1", "Apply CPI"),
-        ("2", "apply_2", "Apply D1 Ret"),
-        ("3", "apply_3", "Apply Monetiz"),
-        ("s", "toggle_panel", "Switch Panel"), 
+        ("ctrl+q", "quit", "Exit"), 
+        ("ctrl+r", "refresh_solver", "Solve"), 
+        ("ctrl+t", "next_tab", "Next Tab"),
+        ("ctrl+s", "toggle_panel", "Switch Panel"),
+        ("ctrl+1", "apply_1", "Apply CPI"),
+        ("ctrl+2", "apply_2", "Apply D1 Ret"),
+        ("ctrl+3", "apply_3", "Apply Monetiz"),
         ("escape", "unfocus", "Revert")
     ]
 
     _panel_on_sidebar: bool = True
     _focus_original_values: dict[str, str | None] = {}
+    _last_sidebar_focus: str | None = None
+    _last_right_focus: str | None = None
 
     def action_toggle_panel(self) -> None:
         self._panel_on_sidebar = not self._panel_on_sidebar
         if self._panel_on_sidebar:
-            first = self.query_one("#model_type_select", Select)
-            first.focus()
+            if self._last_sidebar_focus:
+                try:
+                    self.query_one(f"#{self._last_sidebar_focus}").focus()
+                    return
+                except Exception:
+                    pass
+            self.query_one("#model_type_select", Select).focus()
         else:
+            if self._last_right_focus:
+                try:
+                    self.query_one(f"#{self._last_right_focus}").focus()
+                    return
+                except Exception:
+                    pass
             self.query_one("#timeline_table").focus()
 
     def action_unfocus(self) -> None:
@@ -526,8 +550,16 @@ class BusinessModelTUI(App):
             self.set_focus(None)
 
     def on_descendant_focus(self, event) -> None:
-        if isinstance(event.widget, Input):
-            self._focus_original_values.setdefault(event.widget.id, event.widget.value)
+        widget = event.widget
+        if isinstance(widget, Input):
+            self._focus_original_values.setdefault(widget.id, widget.value)
+        widget_id = getattr(widget, 'id', None)
+        if widget_id:
+            if self._panel_on_sidebar or widget_id in ('scenario_select', 'in_scenario_name', 'model_type_select', 'btn_save', 'btn_delete', 'btn_solve'):
+                self._last_sidebar_focus = widget_id
+            else:
+                self._last_right_focus = widget_id
+            self._update_focus_indicator(widget)
 
     def __init__(self):
         super().__init__()
@@ -634,6 +666,7 @@ class BusinessModelTUI(App):
                     )
 
             with Vertical(id="main-content"):
+                yield Static("[dim]Focus: --[/]", id="focus_indicator")
                 with TabbedContent():
                     with TabPane("12-Month Runway", id="tab_timeline"):
                         yield Static(id="kpi_summary")
@@ -641,9 +674,32 @@ class BusinessModelTUI(App):
                     with TabPane("Compare Scenarios", id="tab_compare"):
                         yield DataTable(id="compare_table")
                     with TabPane("Target Solver", id="tab_solver"):
-                        yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press 1, 2, or 3 to apply.[/]", id="solver_instructions")
+                        yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press ctrl+1, ctrl+2, or ctrl+3 to apply.[/]", id="solver_instructions")
                         yield Static("", id="solver_output")
         yield Footer()
+
+    def _update_focus_indicator(self, widget) -> None:
+        """Show current focus in focus indicator widget."""
+        try:
+            indicator = self.query_one("#focus_indicator", Static)
+            widget_id = getattr(widget, 'id', None) or ''
+            widget_type = type(widget).__name__
+            friendly = {
+                'timeline_table': 'Timeline Table',
+                'compare_table': 'Compare Table',
+                'solver_output': 'Solver Output (read-only)',
+                'kpi_summary': 'KPI Summary (read-only)',
+                'model_type_select': 'Model Type',
+                'scenario_select': 'Active Scenario',
+                'in_scenario_name': 'Scenario Name',
+                'btn_save': 'Save Button',
+                'btn_delete': 'Delete Button',
+                'btn_solve': 'Solve Button',
+            }.get(widget_id, widget_id or widget_type)
+            side = "sidebar" if (self._last_sidebar_focus == widget_id) else "right panel"
+            indicator.update(f"[dim]Focus: [b]{friendly}[/] ({side})[/]")
+        except Exception:
+            pass
 
     def on_mount(self) -> None:
         table = self.query_one("#timeline_table", DataTable)
@@ -954,19 +1010,19 @@ class BusinessModelTUI(App):
             f"  [bold]Goal 1:[/] Year-End Breakeven (cash balance ≥ $0 at 12 months)",
             f"  [bold]Goal 2:[/] LTV:CPI ratio ≥ 3.0",
             "",
-            f"[bold cyan]Goal 1: Breakeven[/]  Press [bold white]1[/] to set CPI",
+            f"[bold cyan]Goal 1: Breakeven[/]  Press [bold white]ctrl+1[/] to set CPI",
             "",
             f"  CPI must be ≤ {cpi_be_s}          (current: ${self.engine.cpi:.2f})",
             f"  D1 Retention must be ≥ {d1_be_s}  (current: {self.engine.day_1_retention:.1f}%)",
             f"  {mon_label} must be ≥ {mon_be_s}  (current: {mon_curr_disp})",
             "",
-            f"[bold cyan]Goal 2: LTV:CPI >= 3.0[/]  Press [bold white]2[/] to set D1 Ret, [bold white]3[/] to set {mon_label}",
+            f"[bold cyan]Goal 2: LTV:CPI >= 3.0[/]  Press [bold white]ctrl+2[/] to set D1 Ret, [bold white]ctrl+3[/] to set {mon_label}",
             "",
             f"  CPI must be ≤ {cpi_ltv_s}          (current: ${self.engine.cpi:.2f})",
             f"  D1 Retention must be ≥ {d1_ltv_s}  (current: {self.engine.day_1_retention:.1f}%)",
             f"  {mon_label} must be ≥ {mon_ltv_s}  (current: {mon_curr_disp})",
             "",
-            f"[dim]Press [1] [2] [3] to apply the green value to the sidebar. Press [t] to switch tabs.[/]",
+            f"[dim]Press [ctrl+1] [ctrl+2] [ctrl+3] to apply the green value to the sidebar. Press [ctrl+t] to switch tabs.[/]",
         ]
         output.update("\n".join(lines))
 
