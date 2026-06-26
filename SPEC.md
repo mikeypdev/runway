@@ -255,6 +255,16 @@ Hidden sections are collapsed and their inputs are disabled.
 
 ---
 
+## Behavior Notes
+
+- **Per-keystroke recalc:** Every `Input.Changed` event triggers a full 365-day simulation and redraws the timeline table.
+- **Enter/Blur:** Commits the value, clears the `.pending` highlight, recalculates, and refreshes the Solver tab if it's active.
+- **Solver tab:** Also refreshes when activated via `ctrl+t` or clicking the tab.
+- **Delete confirmation:** First click shows "Delete this scenario? Press Delete again to confirm." Second click executes deletion. Escape cancels.
+- **Monthly rows:** Styled with bold cyan date to distinguish from daily rows.
+
+---
+
 ## Keyboard Shortcuts
 
 | Key | Action | Description |
@@ -267,12 +277,6 @@ Hidden sections are collapsed and their inputs are disabled.
 | `ctrl+2` | apply_2 | Apply solver's D1 Retention value to sidebar |
 | `ctrl+3` | apply_3 | Apply solver's monetization value to sidebar |
 | `escape` | unfocus | Revert input to last-committed value and unfocus |
-
-### Behavior Notes
-
-- **Per-keystroke recalc:** Every `Input.Changed` event triggers a full 365-day simulation and redraws the timeline table.
-- **Enter/Blur:** Commits the value, clears the `.pending` highlight, recalculates, and refreshes the Solver tab if it's active.
-- **Solver tab:** Also refreshes when activated via `ctrl+t` or clicking the tab.
 
 ### Focus Management
 
@@ -337,12 +341,9 @@ Hidden sections are collapsed and their inputs are disabled.
 ### Known Issues
 
 1. **O(n²) cohort iteration:** Each day iterates all historical cohorts. At 365 days this is ~66k iterations — fine at current scale but would need optimization for longer simulations.
-2. **Solver performance:** Each solver call runs up to 15 full 365-day simulations. With 6 solver calls, that's ~90 simulations when the Solver tab opens. Causes noticeable lag.
-3. **`_focus_original_values` is a class variable:** Defined as `{}` at class level instead of instance level. Works because there's only one app instance, but is technically incorrect.
-4. **No input validation for date:** Invalid date strings will crash in `datetime.date.fromisoformat()`.
-5. **Compare tab shows "(Current)" plus all saved scenarios:** If current params match a saved scenario, duplicate rows appear.
-6. **`.pending` CSS class is added but never styled:** `on_input_changed` adds it, but no CSS rule targets it.
-7. **Monthly aggregation semantics:** DAU shows last-day snapshot, not average. Revenue is summed. This can be confusing when comparing daily vs monthly rows.
+2. **Solver performance:** Each solver call runs up to 10 full 365-day simulations. With 6 solver calls, that's ~60 simulations when the Solver tab opens. Noticeable but acceptable.
+3. **No input validation for date beyond format:** Invalid date strings (e.g., "2025-13-01") are rejected, but dates like "2025-02-30" pass format validation.
+4. **Compare tab shows "(Current)" row:** Always shows current parameters even if they match a saved scenario (deduplication only applies to saved scenarios).
 
 ---
 

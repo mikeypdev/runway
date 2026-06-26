@@ -386,6 +386,9 @@ class BusinessModelTUI(App):
     }
     #sidebar-fixed {
         height: auto;
+        border-bottom: solid $primary-darken-1;
+        margin-bottom: 0;
+        padding-bottom: 1;
     }
     #params-scroll {
         height: 1fr;
@@ -434,9 +437,6 @@ class BusinessModelTUI(App):
         text-align: right;
         padding: 0 1;
     }
-    Input.pending {
-        background: $warning-darken-2;
-    }
     Input:focus {
         background: $primary-darken-2;
     }
@@ -451,12 +451,12 @@ class BusinessModelTUI(App):
         border: tall $accent;
     }
     #focus_indicator {
-        color: $text-muted;
-        background: $surface;
+        color: $text;
+        background: $primary-darken-3;
         padding: 0 1;
         height: 1;
         margin-bottom: 0;
-        text-style: italic;
+        text-style: bold;
     }
     DataTable > .datatable--header {
         background: $primary-darken-2;
@@ -480,12 +480,18 @@ class BusinessModelTUI(App):
         margin-right: 1;
         border: none;
     }
-    Static#kpi_summary {
-        color: $text;
-        background: $surface;
-        border: none;
-        padding: 0 1;
+    #kpi_summary {
         height: auto;
+        margin-bottom: 0;
+        padding: 0 1;
+        background: $surface;
+        width: 1fr;
+    }
+    .solver-status {
+        color: $text-muted;
+        text-style: italic;
+        height: 1;
+        padding: 0 1;
         margin-bottom: 0;
     }
     #validation_status {
@@ -551,13 +557,21 @@ class BusinessModelTUI(App):
         else:
             self.set_focus(None)
 
+    def _is_sidebar_widget(self, widget) -> bool:
+        """Check if a widget lives inside the sidebar."""
+        try:
+            self.query_one(f"#sidebar #{widget.id}")
+            return True
+        except Exception:
+            return False
+
     def on_descendant_focus(self, event) -> None:
         widget = event.widget
         if isinstance(widget, Input):
             self._focus_original_values.setdefault(widget.id, widget.value)
         widget_id = getattr(widget, 'id', None)
         if widget_id:
-            if self._panel_on_sidebar or widget_id in ('scenario_select', 'in_scenario_name', 'model_type_select', 'btn_save', 'btn_delete', 'btn_solve'):
+            if self._is_sidebar_widget(widget):
                 self._last_sidebar_focus = widget_id
             else:
                 self._last_right_focus = widget_id
@@ -571,6 +585,7 @@ class BusinessModelTUI(App):
         self.engine = RevenueLagEngine()
         self._loading_scenario = False
         self._focus_original_values: dict[str, str | None] = {}
+        self._pending_delete = False
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
@@ -605,7 +620,6 @@ class BusinessModelTUI(App):
                     with Horizontal(id="scenario-bar"):
                         yield Button("Save", id="btn_save", variant="primary", classes="btn-sm")
                         yield Button("Delete", id="btn_delete", variant="error", classes="btn-sm")
-                        yield Button("Solve", id="btn_solve", variant="success", classes="btn-sm")
 
                     yield Label("", id="validation_status", classes="hidden")
 
@@ -670,14 +684,15 @@ class BusinessModelTUI(App):
 
             with Vertical(id="main-content"):
                 yield Static("[dim]Focus: --[/]", id="focus_indicator")
+                yield Static(id="kpi_summary")
                 with TabbedContent():
                     with TabPane("12-Month Runway", id="tab_timeline"):
-                        yield Static(id="kpi_summary")
                         yield DataTable(id="timeline_table")
                     with TabPane("Compare Scenarios", id="tab_compare"):
                         yield DataTable(id="compare_table")
                     with TabPane("Target Solver", id="tab_solver"):
                         yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press ctrl+1, ctrl+2, or ctrl+3 to apply.[/]", id="solver_instructions")
+                        yield Static("", id="solver_status", classes="solver-status")
                         yield Static("", id="solver_output")
         yield Footer()
 
@@ -697,7 +712,26 @@ class BusinessModelTUI(App):
                 'in_scenario_name': 'Scenario Name',
                 'btn_save': 'Save Button',
                 'btn_delete': 'Delete Button',
-                'btn_solve': 'Solve Button',
+                'in_start_date': 'Start Date',
+                'in_ua_spend': 'Daily UA Spend',
+                'in_cpi': 'Cost Per Install',
+                'in_cpi_sat': 'CPI Saturation',
+                'in_influencer': 'Burst Installs/Day',
+                'in_organic': 'Organic Ratio',
+                'in_kfactor': 'Viral K-Factor',
+                'in_d1_retention': 'D1 Retention',
+                'in_decay': 'Retention Decay',
+                'in_payer_pct': 'Payer Conversion',
+                'in_whale_spend': 'Whale Daily Spend',
+                'in_video_ecpm': 'Video eCPM',
+                'in_video_impressions': 'Impressions/DAU/Day',
+                'in_game_price': 'Game Price',
+                'in_ad_removal_price': 'Removal Price',
+                'in_ad_removal_pct': 'Removal Conversion',
+                'in_platform_fee': 'Platform Fee',
+                'in_delay': 'Payout Delay',
+                'in_fixed_ops': 'Fixed Daily Overhead',
+                'in_server_k': 'Server Cost per 1k DAU',
             }.get(widget_id, widget_id or widget_type)
             side = "sidebar" if (self._last_sidebar_focus == widget_id) else "right panel"
             indicator.update(f"[dim]Focus: [b]{friendly}[/] ({side})[/]")
@@ -770,6 +804,14 @@ class BusinessModelTUI(App):
         elif names:
             select.value = names[0]
 
+    def _confirm_delete(self) -> None:
+        """Show delete confirmation with Yes/No buttons."""
+        self.query_one("#validation_status", Label).update(
+            "[bold yellow]Delete this scenario? Press Delete again to confirm, or Escape to cancel.[/]"
+        )
+        self.query_one("#validation_status").set_class(False, "hidden")
+        self._pending_delete = True
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_save":
             name = self.query_one("#in_scenario_name", Input).value.strip()
@@ -783,19 +825,21 @@ class BusinessModelTUI(App):
             self._refresh_compare()
 
         elif event.button.id == "btn_delete":
-            current = self.query_one("#scenario_select", Select)
-            if current.value:
-                self.store.delete(str(current.value))
-                self._refresh_select()
-                names = self.store.list_names()
-                if names:
-                    self._load_scenario(names[0])
-                    self.action_recalculate()
-                self._refresh_compare()
-
-        elif event.button.id == "btn_solve":
-            self.action_refresh_solver()
-            self.action_recalculate()
+            if getattr(self, "_pending_delete", False):
+                self._pending_delete = False
+                current = self.query_one("#scenario_select", Select)
+                if current.value:
+                    self.store.delete(str(current.value))
+                    self._refresh_select()
+                    names = self.store.list_names()
+                    if names:
+                        self._load_scenario(names[0])
+                        self.action_recalculate()
+                    self._refresh_compare()
+                self.query_one("#validation_status", Label).update("")
+                self.query_one("#validation_status").set_class(True, "hidden")
+            else:
+                self._confirm_delete()
 
     def action_recalculate(self) -> None:
         for attr, widget_id, cast_fn in EXPOSED_PARAMS:
@@ -831,12 +875,13 @@ class BusinessModelTUI(App):
         peak_dau = max(d["dau"] for d in timeline_data)
         final_bank = timeline_data[-1]["bank_balance"]
         bank_color = "green" if final_bank >= 0 else "bold red"
+
         self.query_one("#kpi_summary", Static).update(
-            f"LTV: [bold white]${ltv:.2f}[/]  ·  "
-            f"CPI: [bold white]${self.engine.cpi:.2f}[/]  ·  "
-            f"LTV:CPI: [{ratio_color} bold]{ratio:.2f}[/]  ·  "
-            f"Peak DAU: [bold white]{peak_dau:,}[/]  ·  "
-            f"Year-End: [{bank_color} bold]${final_bank:,.0f}[/]"
+            f" [dim]LTV[/] [bold white]${ltv:.2f}[/]  ·  "
+            f"[dim]CPI[/] [bold white]${self.engine.cpi:.2f}[/]  ·  "
+            f"[dim]LTV:CPI[/] [{ratio_color} bold]{ratio:.2f}[/]  ·  "
+            f"[dim]Peak DAU[/] [bold white]{peak_dau:,}[/]  ·  "
+            f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
         table = self.query_one("#timeline_table", DataTable)
@@ -845,8 +890,12 @@ class BusinessModelTUI(App):
         for day in timeline_data:
             bank_text = Text(f"${day['bank_balance']:.2f}")
             bank_text.stylize("green" if day["bank_balance"] >= 0 else "bold red")
+            is_monthly = day["date"].endswith("(month)")
+            date_text = Text(day["date"])
+            if is_monthly:
+                date_text.stylize("bold cyan")
             table.add_row(
-                day["date"],
+                date_text,
                 f"{day['dau']:,}",
                 f"${day['accrued_rev']:.2f}",
                 f"${day['cash_inflow']:.2f}",
@@ -858,8 +907,16 @@ class BusinessModelTUI(App):
 
 
     def action_refresh_solver(self) -> None:
-        """Refresh the solver output."""
+        """Refresh the solver output with loading indicator."""
+        try:
+            self.query_one("#solver_status", Static).update("[dim]Solving...[/]")
+        except Exception:
+            pass
         self._refresh_solver_table()
+        try:
+            self.query_one("#solver_status", Static).update("")
+        except Exception:
+            pass
 
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
