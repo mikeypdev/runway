@@ -24,6 +24,29 @@ Three mutually exclusive models selected via a dropdown. The model type controls
 
 Simulates 365 days internally. The UI shows 90 daily rows (days 1–90) then monthly aggregated rows for months 4–12.
 
+### UA Scaling Model
+
+Two modes for daily UA spend:
+
+**Manual Mode (default):** User sets a fixed `daily_ua_spend` that remains constant throughout the simulation.
+
+**Auto-Scale Mode:** Spend automatically adjusts based on ROI performance. Every 7 days, the engine evaluates:
+
+```
+if implied_ratio > target_roi × 1.5:   spend *= scale_speed × 1.3  (ramp fast)
+if implied_ratio > target_roi:          spend *= scale_speed         (ramp normally)
+if implied_ratio > target_roi × 0.8:    hold                        (at equilibrium)
+else:                                   spend /= scale_speed         (pull back)
+```
+
+Clamped to `[daily_ua_spend × 0.1, max_daily_budget]`.
+
+The implied ratio is estimated from recent (7-day average) settled cash inflow vs. UA spend, adjusted for CPI saturation at current cumulative installs.
+
+### Spend Sensitivity Analysis
+
+The "Spend Analysis" tab shows projected outcomes at 6 spend levels (0.25×, 0.5×, 1×, 2×, 4×, 8× of current daily spend). Current spend level is marked with `*`. Recalculates when the tab is activated.
+
 ### Cohort-Based DAU Model
 
 Each day's total installs are stored as a **cohort** with an initial size. On subsequent days, every historical cohort is decayed through the retention curve and summed to compute surviving DAU.
@@ -163,6 +186,10 @@ These are the user-tunable inputs. The `EXPOSED_PARAMS` list is the single sourc
 | Engine Attribute | Widget ID | Type | Description | Default |
 |-----------------|-----------|------|-------------|---------|
 | `daily_ua_spend` | `in_ua_spend` | float | Daily user acquisition budget ($) | 10.00 |
+| `ua_scaling_mode` | `in_scaling_mode` | str | Manual (fixed) or Auto-scale (ROI-based) | manual |
+| `target_roi` | `in_target_roi` | float | LTV:CPI threshold for auto-scaling | 3.0 |
+| `max_daily_budget` | `in_max_budget` | float | Hard cap on daily spend in auto mode ($) | 50.00 |
+| `scale_speed` | `in_scale_speed` | float | Daily multiplier for auto-scaling | 1.10 |
 | `cpi` | `in_cpi` | float | Cost per install ($) | 0.26 |
 | `cpi_saturation` | `in_cpi_sat` | float | CPI saturation coefficient | 0.30 |
 | `influencer_installs` | `in_influencer` | float | Burst/influencer installs per day | 0.0 |
@@ -270,7 +297,7 @@ Hidden sections are collapsed and their inputs are disabled.
 | Key | Action | Description |
 |-----|--------|-------------|
 | `ctrl+q` | quit | Exit the application |
-| `ctrl+r` | refresh_solver | Re-run the solver computation |
+| `ctrl+r` | refresh | Refresh solver or spend analysis (context-aware) |
 | `ctrl+t` | next_tab | Cycle through tabs (Timeline → Compare → Solver) |
 | `ctrl+s` | toggle_panel | Move focus between sidebar and right panel |
 | `ctrl+1` | apply_1 | Apply solver's CPI value to sidebar |

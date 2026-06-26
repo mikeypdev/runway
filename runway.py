@@ -9,6 +9,11 @@ from rich.text import Text
 
 SCENARIOS_FILE = Path("scenarios.json")
 
+SCALING_OPTIONS = [
+    ("Manual (fixed spend)", "manual"),
+    ("Auto-scale (ROI-based)", "auto"),
+]
+
 MODEL_F2P = "f2p"
 MODEL_PREMIUM = "premium"
 MODEL_REMOVE_ADS = "remove_ads"
@@ -21,6 +26,9 @@ MODEL_OPTIONS = [
 
 EXPOSED_PARAMS = [
     ("daily_ua_spend", "in_ua_spend", float),
+    ("target_roi", "in_target_roi", float),
+    ("max_daily_budget", "in_max_budget", float),
+    ("scale_speed", "in_scale_speed", float),
     ("cpi", "in_cpi", float),
     ("cpi_saturation", "in_cpi_sat", float),
     ("influencer_installs", "in_influencer", float),
@@ -45,6 +53,7 @@ EXPOSED_PARAMS = [
 DEFAULT_SCENARIOS = {
     "F2P Base Case": {
         "model_type": MODEL_F2P,
+        "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
@@ -57,6 +66,7 @@ DEFAULT_SCENARIOS = {
     },
     "Premium $4.99": {
         "model_type": MODEL_PREMIUM,
+        "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 15.00, "cpi": 0.80, "cpi_saturation": 0.40,
         "influencer_installs": 10.0,
         "organic_ratio": 0.12, "virality_k_factor": 0.04,
@@ -69,6 +79,7 @@ DEFAULT_SCENARIOS = {
     },
     "F2P Remove Ads $2.99": {
         "model_type": MODEL_REMOVE_ADS,
+        "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
@@ -125,6 +136,11 @@ class RevenueLagEngine:
         self.cpi_saturation = 0.30
         self.daily_ua_spend = 10.00
 
+        self.ua_scaling_mode = "manual"
+        self.target_roi = 3.0
+        self.max_daily_budget = 50.0
+        self.scale_speed = 1.10
+
         self.payer_pct = 0.03
         self.platform_fee = 0.30
         self.video_ecpm = 80.00
@@ -153,6 +169,8 @@ class RevenueLagEngine:
     def apply_params(self, params: dict):
         if "model_type" in params:
             self.model_type = params["model_type"]
+        if "ua_scaling_mode" in params:
+            self.ua_scaling_mode = params["ua_scaling_mode"]
         start_date_input = datetime.date.today().strftime("%Y-%m-%d")
         for attr, widget_id, cast_fn in EXPOSED_PARAMS:
             if attr in params:
@@ -161,7 +179,7 @@ class RevenueLagEngine:
             self.start_date = start_date_input
 
     def snapshot_params(self) -> dict:
-        result = {"model_type": self.model_type}
+        result = {"model_type": self.model_type, "ua_scaling_mode": self.ua_scaling_mode}
         result.update({attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS})
         return result
 
@@ -207,6 +225,25 @@ class RevenueLagEngine:
         ltv = self.calculate_ltv()
         return ltv / self.cpi if self.cpi > 0 else float("inf")
 
+    def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float) -> float:
+        if self.model_type == MODEL_PREMIUM:
+            gross_rev = total_new_installs * self.game_price
+            return gross_rev * (1.0 - self.platform_fee)
+        elif self.model_type == MODEL_REMOVE_ADS:
+            ad_removers = total_new_installs * self.ad_removal_price
+            iap_rev = ad_removers * self.ad_removal_price
+            ad_viewing_dau = dau * (1.0 - self.ad_removal_pct)
+            gross_ads = ad_viewing_dau * ad_arpu_per_dau
+            net_iap = iap_rev * (1.0 - self.platform_fee)
+            net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
+            return net_iap + net_ads
+        else:
+            gross_iap = dau * self.payer_pct * daily_payer_spend
+            gross_ads = dau * ad_arpu_per_dau
+            net_iap = gross_iap * (1.0 - self.platform_fee)
+            net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
+            return net_iap + net_ads
+
     def calculate_timeline(self):
         all_days = []
         cumulative_bank_balance = 0.0
@@ -217,12 +254,13 @@ class RevenueLagEngine:
 
         daily_payer_spend = self.calculate_daily_payer_arppu()
         ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+        current_spend = self.daily_ua_spend
 
         for day in range(365):
             current_date = start_date + datetime.timedelta(days=day)
 
             effective_cpi = self.cpi * (1 + self.cpi_saturation * math.log(1 + cumulative_paid_installs / 10000))
-            paid_installs = self.daily_ua_spend / effective_cpi if effective_cpi > 0 else 0
+            paid_installs = current_spend / effective_cpi if effective_cpi > 0 else 0
             cumulative_paid_installs += paid_installs
             base_installs = self.influencer_installs + paid_installs
 
@@ -239,27 +277,7 @@ class RevenueLagEngine:
 
             dau = surviving_historical_users + total_new_installs
 
-            if self.model_type == MODEL_PREMIUM:
-                gross_rev = total_new_installs * self.game_price
-                net_rev = gross_rev * (1.0 - self.platform_fee)
-                day_accrued_net_revenue = net_rev
-
-            elif self.model_type == MODEL_REMOVE_ADS:
-                ad_removers = total_new_installs * self.ad_removal_pct
-                iap_rev = ad_removers * self.ad_removal_price
-                ad_viewing_dau = dau * (1.0 - self.ad_removal_pct)
-                gross_ads = ad_viewing_dau * ad_arpu_per_dau
-                net_iap = iap_rev * (1.0 - self.platform_fee)
-                net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
-                day_accrued_net_revenue = net_iap + net_ads
-
-            else:
-                gross_iap = dau * self.payer_pct * daily_payer_spend
-                gross_ads = dau * ad_arpu_per_dau
-                net_iap = gross_iap * (1.0 - self.platform_fee)
-                net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
-                day_accrued_net_revenue = net_iap + net_ads
-
+            day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend)
             accrued_revenue_history[day] = day_accrued_net_revenue
 
             day_settled_cash_inflow = 0.0
@@ -273,7 +291,7 @@ class RevenueLagEngine:
                 self.fixed_overhead_daily +
                 scaling_server_expense +
                 scaling_support_expense +
-                self.daily_ua_spend
+                current_spend
             )
 
             net_daily_cash_flow = day_settled_cash_inflow - total_ops_outflow
@@ -288,6 +306,27 @@ class RevenueLagEngine:
                 "cash_flow": net_daily_cash_flow,
                 "bank_balance": cumulative_bank_balance
             })
+
+            if self.ua_scaling_mode == "auto" and day > 0 and day % 7 == 0:
+                recent_days = all_days[-7:]
+                avg_cash_in = sum(d["cash_inflow"] for d in recent_days) / 7.0
+                avg_ops_cost = sum(d["ops_cost"] for d in recent_days) / 7.0
+                avg_spend = sum(d.get("ua_spend", current_spend) for d in recent_days) / 7.0 if any("ua_spend" in d for d in recent_days) else current_spend
+
+                if avg_spend > 0:
+                    implied_ltv_per_install = avg_cash_in / (avg_spend / effective_cpi) if effective_cpi > 0 else 0
+                    current_ratio = implied_ltv_per_install / effective_cpi if effective_cpi > 0 else 0
+
+                    if current_ratio > self.target_roi * 1.5:
+                        current_spend = min(current_spend * self.scale_speed * 1.3, self.max_daily_budget)
+                    elif current_ratio > self.target_roi:
+                        current_spend = min(current_spend * self.scale_speed, self.max_daily_budget)
+                    elif current_ratio > self.target_roi * 0.8:
+                        pass
+                    else:
+                        current_spend = max(current_spend / self.scale_speed, self.daily_ua_spend * 0.1)
+
+            all_days[-1]["ua_spend"] = current_spend
 
         timeline = []
         for d in all_days[:90]:
@@ -340,22 +379,22 @@ class RevenueLagEngine:
         try:
             setattr(self, param_name, low)
             val_low = target_fn()
-            
+
             setattr(self, param_name, high)
             val_high = target_fn()
-            
+
             min_val = min(val_low, val_high)
             max_val = max(val_low, val_high)
             if not (min_val <= target_val <= max_val):
                 return None
-            
+
             increasing = val_high > val_low
-            
+
             for _ in range(max_iters):
                 mid = (low + high) / 2.0
                 setattr(self, param_name, mid)
                 val_mid = target_fn()
-                
+
                 if (val_mid > target_val if increasing else val_mid < target_val):
                     high = mid
                 else:
@@ -365,6 +404,33 @@ class RevenueLagEngine:
             return None
         finally:
             setattr(self, param_name, orig)
+
+    def calculate_sensitivity(self, spend_levels: list[float] | None = None) -> list[dict]:
+        if spend_levels is None:
+            base = self.daily_ua_spend
+            spend_levels = [max(1.0, base * m) for m in [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
+
+        results = []
+        orig_spend = self.daily_ua_spend
+        try:
+            for spend in spend_levels:
+                self.daily_ua_spend = spend
+                timeline = self.calculate_timeline()
+                summary = self.summarize_timeline(timeline)
+                ltv = self.calculate_ltv()
+                ratio = self.calculate_ltv_cpi_ratio()
+                results.append({
+                    "spend": spend,
+                    "peak_dau": summary["peak_dau"],
+                    "total_accrued": summary["total_accrued"],
+                    "final_bank": summary["final_bank"],
+                    "ltv": ltv,
+                    "ratio": ratio,
+                    "break_even": summary["break_even_day"],
+                })
+        finally:
+            self.daily_ua_spend = orig_spend
+        return results
 
 
 class BusinessModelTUI(App):
@@ -512,7 +578,7 @@ class BusinessModelTUI(App):
 
     BINDINGS = [
         ("ctrl+q", "quit", "Exit"), 
-        ("ctrl+r", "refresh_solver", "Solve"), 
+        ("ctrl+r", "refresh_solver", "Refresh"), 
         ("ctrl+t", "next_tab", "Next Tab"),
         ("ctrl+s", "toggle_panel", "Switch Panel"),
         ("ctrl+1", "apply_1", "Apply CPI"),
@@ -597,6 +663,10 @@ class BusinessModelTUI(App):
         else:
             yield Input(value=str(value), id=input_id, type=type, classes="field-input")
 
+    def _scaling_inputs(self):
+        yield Label("Scaling Mode:")
+        yield Select(SCALING_OPTIONS, value=self.engine.ua_scaling_mode, id="in_scaling_mode")
+
     def section(self, title: str, *children, collapsed: bool = True, section_id: str | None = None):
         with Collapsible(title=title, collapsed=collapsed, classes="param-section", id=section_id):
             for child in children:
@@ -632,6 +702,14 @@ class BusinessModelTUI(App):
                         "Launch Date",
                         self.labeled_input("Start Date (YYYY-MM-DD):", "in_start_date", self.engine.start_date, type=None),
                         collapsed=False,
+                    )
+                    yield from self.section(
+                        "UA Scaling",
+                        self._scaling_inputs(),
+                        self.labeled_input("Target LTV:CPI:", "in_target_roi", self.engine.target_roi),
+                        self.labeled_input("Max Daily Budget ($):", "in_max_budget", self.engine.max_daily_budget),
+                        self.labeled_input("Scale Speed:", "in_scale_speed", self.engine.scale_speed),
+                        section_id="sec_scaling",
                     )
                     yield from self.section(
                         "Marketing Capital",
@@ -690,6 +768,9 @@ class BusinessModelTUI(App):
                         yield DataTable(id="timeline_table")
                     with TabPane("Compare Scenarios", id="tab_compare"):
                         yield DataTable(id="compare_table")
+                    with TabPane("Spend Analysis", id="tab_sensitivity"):
+                        yield Static("[dim]Projected outcomes at different daily UA spend levels. Press ctrl+r to refresh.[/]", id="sensitivity_instructions")
+                        yield DataTable(id="sensitivity_table")
                     with TabPane("Target Solver", id="tab_solver"):
                         yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press ctrl+1, ctrl+2, or ctrl+3 to apply.[/]", id="solver_instructions")
                         yield Static("", id="solver_status", classes="solver-status")
@@ -754,6 +835,13 @@ class BusinessModelTUI(App):
         )
         cmp.cursor_type = "row"
 
+        sens = self.query_one("#sensitivity_table", DataTable)
+        sens.add_columns(
+            "Daily Spend", "Peak DAU", "Total Revenue",
+            "LTV:CPI", "Break-even", "Year-End Bank"
+        )
+        sens.cursor_type = "row"
+
         if self.store.list_names():
             self._load_scenario(self.store.list_names()[0])
 
@@ -789,6 +877,8 @@ class BusinessModelTUI(App):
             self.engine.apply_params(params)
             model_type = params.get("model_type", MODEL_F2P)
             self.query_one("#model_type_select", Select).value = model_type
+            scaling_mode = params.get("ua_scaling_mode", "manual")
+            self.query_one("#in_scaling_mode", Select).value = scaling_mode
             self._apply_model_visibility(model_type)
             for attr, widget_id, cast_fn in EXPOSED_PARAMS:
                 self.query_one(f"#{widget_id}", Input).value = str(getattr(self.engine, attr))
@@ -907,7 +997,17 @@ class BusinessModelTUI(App):
 
 
     def action_refresh_solver(self) -> None:
-        """Refresh the solver output with loading indicator."""
+        """Refresh the active tab's computation."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            pane_id = tabs.active if isinstance(tabs.active, str) else None
+        except Exception:
+            pane_id = None
+
+        if pane_id == "tab_sensitivity":
+            self._refresh_sensitivity()
+            return
+
         try:
             self.query_one("#solver_status", Static).update("[dim]Solving...[/]")
         except Exception:
@@ -921,7 +1021,7 @@ class BusinessModelTUI(App):
     def action_next_tab(self) -> None:
         """Switch to the next tab."""
         tabs = self.query_one("TabbedContent")
-        pane_ids = ["tab_timeline", "tab_compare", "tab_solver"]
+        pane_ids = ["tab_timeline", "tab_compare", "tab_sensitivity", "tab_solver"]
         current = tabs.active
         if isinstance(current, str) and current in pane_ids:
             idx = pane_ids.index(current)
@@ -969,13 +1069,16 @@ class BusinessModelTUI(App):
         self._set_input_value(r["mon_id"], r.get("mon_be"))
 
     def _refresh_solver_tab_if_active(self):
-        """Only compute solver when tab is visible to avoid startup delay."""
+        """Refresh solver or sensitivity when tab is visible."""
         try:
             tabs = self.query_one(TabbedContent)
-            if isinstance(tabs.active, str) and tabs.active == "tab_solver":
-                self._refresh_solver_table()
+            pane_id = tabs.active if isinstance(tabs.active, str) else None
         except Exception:
-            pass
+            return
+        if pane_id == "tab_solver":
+            self._refresh_solver_table()
+        elif pane_id == "tab_sensitivity":
+            self._refresh_sensitivity()
 
     def _refresh_compare(self):
         cmp = self.query_one("#compare_table", DataTable)
@@ -1130,18 +1233,46 @@ class BusinessModelTUI(App):
         self.action_recalculate()
         self._refresh_solver_tab_if_active()
 
+    def _refresh_sensitivity(self):
+        """Compute and display spend sensitivity analysis."""
+        table = self.query_one("#sensitivity_table", DataTable)
+        table.clear()
+        results = self.engine.calculate_sensitivity()
+        for r in results:
+            ratio_color = "green" if r["ratio"] >= 3.0 else ("yellow" if r["ratio"] >= 1.0 else "bold red")
+            bank_text = Text(f"${r['final_bank']:,.0f}")
+            bank_text.stylize("green" if r["final_bank"] >= 0 else "bold red")
+            be = str(r["break_even"]) if r["break_even"] is not None else "—"
+            ratio_text = Text(f"{r['ratio']:.2f}")
+            ratio_text.stylize(ratio_color)
+            is_current = abs(r["spend"] - self.engine.daily_ua_spend) < 0.01
+            spend_label = f"${r['spend']:.2f}" + (" *" if is_current else "")
+            table.add_row(
+                spend_label,
+                f"{r['peak_dau']:,}",
+                f"${r['total_accrued']:,.0f}",
+                ratio_text,
+                be,
+                bank_text,
+            )
+
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "scenario_select" and event.value is not None:
             self._load_scenario(str(event.value))
             self.action_recalculate()
+            self._refresh_solver_tab_if_active()
         elif event.select.id == "model_type_select" and event.value is not None:
             self.engine.model_type = str(event.value)
             self._apply_model_visibility(str(event.value))
             self.action_recalculate()
+            self._refresh_solver_tab_if_active()
+        elif event.select.id == "in_scaling_mode" and event.value is not None:
+            self.engine.ua_scaling_mode = str(event.value)
+            self.action_recalculate()
+            self._refresh_solver_tab_if_active()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
-        if getattr(event.pane, 'id', None) == "tab_solver":
-            self._refresh_solver_table()
+        self._refresh_solver_tab_if_active()
 
 
 if __name__ == "__main__":
