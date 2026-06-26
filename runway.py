@@ -335,7 +335,7 @@ class RevenueLagEngine:
     def get_ltv_cpi(self) -> float:
         return self.calculate_ltv_cpi_ratio()
 
-    def solve_parameter(self, param_name: str, target_fn, target_val: float, low: float, high: float, max_iters: int = 15) -> float | None:
+    def solve_parameter(self, param_name: str, target_fn, target_val: float, low: float, high: float, max_iters: int = 10) -> float | None:
         orig = getattr(self, param_name)
         try:
             setattr(self, param_name, low)
@@ -434,6 +434,9 @@ class BusinessModelTUI(App):
         text-align: right;
         padding: 0 1;
     }
+    Input.pending {
+        background: $warning-darken-2;
+    }
     Input:focus {
         background: $primary-darken-2;
     }
@@ -513,7 +516,6 @@ class BusinessModelTUI(App):
     ]
 
     _panel_on_sidebar: bool = True
-    _focus_original_values: dict[str, str | None] = {}
     _last_sidebar_focus: str | None = None
     _last_right_focus: str | None = None
 
@@ -568,6 +570,7 @@ class BusinessModelTUI(App):
         self.store = ScenarioStore()
         self.engine = RevenueLagEngine()
         self._loading_scenario = False
+        self._focus_original_values: dict[str, str | None] = {}
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
@@ -808,6 +811,15 @@ class BusinessModelTUI(App):
                 self.query_one("#validation_status").set_class(False, "hidden")
                 return
 
+        try:
+            datetime.date.fromisoformat(self.engine.start_date)
+        except (ValueError, TypeError):
+            self.query_one("#validation_status", Label).update(
+                "[bold red]Invalid date format (use YYYY-MM-DD)[/]"
+            )
+            self.query_one("#validation_status").set_class(False, "hidden")
+            return
+
         self.query_one("#validation_status", Label).update("")
         self.query_one("#validation_status").set_class(True, "hidden")
 
@@ -912,9 +924,12 @@ class BusinessModelTUI(App):
         cmp = self.query_one("#compare_table", DataTable)
         cmp.clear()
         self._add_compare_row(cmp, "(Current)", self.engine)
+        current_snapshot = self.engine.snapshot_params()
         for name in self.store.list_names():
             params = self.store.get(name)
             if not params:
+                continue
+            if params == current_snapshot:
                 continue
             tmp_engine = RevenueLagEngine()
             tmp_engine.apply_params(params)
@@ -948,7 +963,8 @@ class BusinessModelTUI(App):
         output = self.query_one("#solver_output", Static)
 
         cpi_be = self.engine.solve_parameter("cpi", self.engine.get_final_bank, 0.0, 0.01, 20.0)
-        cpi_ltv = self.engine.calculate_ltv() / 3.0 if self.engine.calculate_ltv() > 0 else None
+        cpi_ltv_val = self.engine.calculate_ltv()
+        cpi_ltv = cpi_ltv_val / 3.0 if cpi_ltv_val > 0 else None
 
         d1_be = self.engine.solve_parameter("day_1_retention", self.engine.get_final_bank, 0.0, 1.0, 99.0)
         d1_ltv = self.engine.solve_parameter("day_1_retention", self.engine.get_ltv_cpi, 3.0, 1.0, 99.0)
@@ -1049,11 +1065,13 @@ class BusinessModelTUI(App):
         event.input.remove_class("pending")
         self._focus_original_values[event.input.id] = event.input.value
         self.action_recalculate()
+        self._refresh_solver_tab_if_active()
 
     def on_blur(self, event: Input.Blur) -> None:
         event.input.remove_class("pending")
         self._focus_original_values[event.input.id] = event.input.value
         self.action_recalculate()
+        self._refresh_solver_tab_if_active()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "scenario_select" and event.value is not None:
