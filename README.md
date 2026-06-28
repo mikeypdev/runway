@@ -13,6 +13,8 @@ Supports three business models:
 
 Multiple named scenarios can be saved and compared side-by-side (peak DAU, total accrued revenue, break-even day, year-end bank balance).
 
+Includes a **target solver** that finds the parameter values needed to hit specific financial goals (year-end breakeven, LTV:CPI ≥ 3.0) and a **spend sensitivity analysis** that shows projected outcomes at different daily UA spend levels.
+
 ## Quick start
 
 ```bash
@@ -31,6 +33,10 @@ Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installe
 | | Cost Per Install | Base cost per paid install |
 | | CPI Saturation | How much CPI grows as cumulative installs increase (0 = off) |
 | | Burst / Influencer Installs | Daily non-paid installs from campaigns |
+| **UA Scaling** | Scaling Mode | Manual (fixed spend) or Auto-scale (ROI-based) |
+| | Target ROI | Auto-scale target LTV:CPI ratio |
+| | Max Daily Budget | Cap for auto-scaling spend |
+| | Scale Speed | Multiplier for weekly spend adjustments |
 | **Growth & Retention** | Organic Install Ratio | Free installs as a ratio of paid |
 | | Viral K-Factor | Additional installs per user (recursive) |
 | | D1 Retention | Day-1 retention percentage |
@@ -49,12 +55,19 @@ Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installe
 
 ## Key bindings
 
-- `r` — Recalculate
-- `q` — Quit
-- `ESC` — Unfocus current input
-- `↑` / `↓` — Navigate between input fields
+- `ctrl+r` — Recalculate
+- `ctrl+q` — Quit
+- `ctrl+t` — Switch tab
+- `ctrl+s` — Switch panel (sidebar ↔ table)
+- `ctrl+1` / `ctrl+2` / `ctrl+3` — Apply solver values (on Target Solver tab)
+- `escape` — Revert current input / unfocus
 
-All parameters auto-recalculate on every keystroke.
+## Tabs
+
+- **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries
+- **Compare Scenarios** — Side-by-side summary metrics for saved scenarios
+- **Spend Analysis** — Projected outcomes at different daily UA spend levels
+- **Target Solver** — Find parameter values needed to meet financial goals
 
 ## Scenarios
 
@@ -75,3 +88,5 @@ The engine tracks each day's new installs as a cohort, applies a power-law reten
 - **Remove Ads:** New installs split — removers pay once, rest generate ad revenue daily
 
 Cash inflow lags accrued revenue by the payout delay. CPI increases logarithmically with cumulative paid installs. Viral installs compound recursively via geometric series.
+
+When auto-scaling is enabled, daily UA spend is adjusted weekly based on achieved ROI versus the target, scaling up when performance exceeds expectations and scaling down when it falls short.
