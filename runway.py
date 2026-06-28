@@ -412,7 +412,9 @@ class RevenueLagEngine:
 
         results = []
         orig_spend = self.daily_ua_spend
+        orig_scaling = self.ua_scaling_mode
         try:
+            self.ua_scaling_mode = "manual"
             for spend in spend_levels:
                 self.daily_ua_spend = spend
                 timeline = self.calculate_timeline()
@@ -430,6 +432,7 @@ class RevenueLagEngine:
                 })
         finally:
             self.daily_ua_spend = orig_spend
+            self.ua_scaling_mode = orig_scaling
         return results
 
 
