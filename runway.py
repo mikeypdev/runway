@@ -655,6 +655,7 @@ class BusinessModelTUI(App):
         self._loading_scenario = False
         self._focus_original_values: dict[str, str | None] = {}
         self._pending_delete = False
+        self._solver_goal = "breakeven"
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
@@ -775,7 +776,13 @@ class BusinessModelTUI(App):
                         yield Static("[dim]Projected outcomes at different daily UA spend levels. Press ctrl+r to refresh.[/]", id="sensitivity_instructions")
                         yield DataTable(id="sensitivity_table")
                     with TabPane("Target Solver", id="tab_solver"):
-                        yield Static("[bold]Target Goals:[/] Year-End Breakeven + LTV:CPI ≥ 3.0\n[dim]Shows what parameter values you need. Press ctrl+1, ctrl+2, or ctrl+3 to apply.[/]", id="solver_instructions")
+                        yield Label("Apply Goal:", classes="setting-group")
+                        yield Select(
+                            [("Breakeven (bank ≥ $0)", "breakeven"), ("LTV:CPI ≥ 3.0", "ltv_cpi")],
+                            value="breakeven",
+                            id="solver_goal_select",
+                        )
+                        yield Static("[bold]Parameter Targets[/]\n[dim]Shows what parameter values you need. Press ctrl+1, ctrl+2, or ctrl+3 to apply.[/]", id="solver_instructions")
                         yield Static("", id="solver_status", classes="solver-status")
                         yield Static("", id="solver_output")
         yield Footer()
@@ -1040,36 +1047,37 @@ class BusinessModelTUI(App):
             widget = self.query_one(f"#{widget_id}", Input)
             widget.value = f"{raw_val}"
             self.action_recalculate()
+            self._refresh_solver_tab_if_active()
         except Exception:
             pass
 
     def action_apply_1(self) -> None:
-        """Apply CPI breakeven value from solver."""
+        """Apply CPI value from solver."""
         if not hasattr(self, '_solver_results') or not self._solver_results:
             return
         tabs = self.query_one(TabbedContent)
         if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
             return
-        self._set_input_value("in_cpi", self._solver_results.get("cpi_be"))
+        self._set_input_value("in_cpi", self._solver_results.get("cpi"))
 
     def action_apply_2(self) -> None:
-        """Apply D1 Retention breakeven value from solver."""
+        """Apply D1 Retention value from solver."""
         if not hasattr(self, '_solver_results') or not self._solver_results:
             return
         tabs = self.query_one(TabbedContent)
         if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
             return
-        self._set_input_value("in_d1_retention", self._solver_results.get("d1_be"))
+        self._set_input_value("in_d1_retention", self._solver_results.get("d1"))
 
     def action_apply_3(self) -> None:
-        """Apply monetization breakeven value from solver."""
+        """Apply monetization value from solver."""
         if not hasattr(self, '_solver_results') or not self._solver_results:
             return
         tabs = self.query_one(TabbedContent)
         if not isinstance(tabs.active, str) or tabs.active != "tab_solver":
             return
         r = self._solver_results
-        self._set_input_value(r["mon_id"], r.get("mon_be"))
+        self._set_input_value(r["mon_id"], r.get("mon"))
 
     def _refresh_solver_tab_if_active(self):
         """Refresh solver or sensitivity when tab is visible."""
@@ -1182,39 +1190,43 @@ class BusinessModelTUI(App):
         mon_be_s = fmt_target(mon_be, mon_is_pct, mon_is_currency, current_bank, 0.0)
         mon_ltv_s = fmt_target(mon_ltv, mon_is_pct, mon_is_currency, current_ratio, 3.0)
 
-        lines = [
-            "",
-            f"[bold cyan]Solving for these goals:[/]",
-            "",
-            f"  [bold]Goal 1:[/] Year-End Breakeven (cash balance ≥ $0 at 12 months)",
-            f"  [bold]Goal 2:[/] LTV:CPI ratio ≥ 3.0",
-            "",
-            f"[bold cyan]Goal 1: Breakeven[/]  Press [bold white]ctrl+1[/] to set CPI",
-            "",
-            f"  CPI must be ≤ {cpi_be_s}          (current: ${self.engine.cpi:.2f})",
-            f"  D1 Retention must be ≥ {d1_be_s}  (current: {self.engine.day_1_retention:.1f}%)",
-            f"  {mon_label} must be ≥ {mon_be_s}  (current: {mon_curr_disp})",
-            "",
-            f"[bold cyan]Goal 2: LTV:CPI >= 3.0[/]  Press [bold white]ctrl+2[/] to set D1 Ret, [bold white]ctrl+3[/] to set {mon_label}",
-            "",
-            f"  CPI must be ≤ {cpi_ltv_s}          (current: ${self.engine.cpi:.2f})",
-            f"  D1 Retention must be ≥ {d1_ltv_s}  (current: {self.engine.day_1_retention:.1f}%)",
-            f"  {mon_label} must be ≥ {mon_ltv_s}  (current: {mon_curr_disp})",
-            "",
-            f"[dim]Press [ctrl+1] [ctrl+2] [ctrl+3] to apply the green value to the sidebar. Press [ctrl+t] to switch tabs.[/]",
-        ]
+        if self._solver_goal == "breakeven":
+            lines = [
+                "",
+                f"[bold cyan]Goal: Year-End Breakeven (bank ≥ $0 at 12 months)[/]",
+                "",
+                f"  CPI must be ≤ {cpi_be_s}          (current: ${self.engine.cpi:.2f})",
+                f"  D1 Retention must be ≥ {d1_be_s}  (current: {self.engine.day_1_retention:.1f}%)",
+                f"  {mon_label} must be ≥ {mon_be_s}  (current: {mon_curr_disp})",
+                "",
+                f"[dim]Press [ctrl+1] CPI, [ctrl+2] D1 Ret, [ctrl+3] {mon_label} to apply. Press [ctrl+t] to switch tabs.[/]",
+            ]
+            self._solver_results = {
+                "cpi": cpi_be,
+                "d1": d1_be,
+                "mon_id": mon_id,
+                "mon": mon_be,
+                "mon_is_pct": mon_is_pct,
+            }
+        else:
+            lines = [
+                "",
+                f"[bold cyan]Goal: LTV:CPI ≥ 3.0[/]",
+                "",
+                f"  CPI must be ≤ {cpi_ltv_s}          (current: ${self.engine.cpi:.2f})",
+                f"  D1 Retention must be ≥ {d1_ltv_s}  (current: {self.engine.day_1_retention:.1f}%)",
+                f"  {mon_label} must be ≥ {mon_ltv_s}  (current: {mon_curr_disp})",
+                "",
+                f"[dim]Press [ctrl+1] CPI, [ctrl+2] D1 Ret, [ctrl+3] {mon_label} to apply. Press [ctrl+t] to switch tabs.[/]",
+            ]
+            self._solver_results = {
+                "cpi": cpi_ltv,
+                "d1": d1_ltv,
+                "mon_id": mon_id,
+                "mon": mon_ltv,
+                "mon_is_pct": mon_is_pct,
+            }
         output.update("\n".join(lines))
-
-        self._solver_results = {
-            "cpi_be": cpi_be,
-            "cpi_ltv": cpi_ltv,
-            "d1_be": d1_be,
-            "d1_ltv": d1_ltv,
-            "mon_id": mon_id,
-            "mon_be": mon_be,
-            "mon_ltv": mon_ltv,
-            "mon_is_pct": mon_is_pct,
-        }
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "in_scenario_name":
@@ -1272,6 +1284,9 @@ class BusinessModelTUI(App):
         elif event.select.id == "in_scaling_mode" and event.value is not None:
             self.engine.ua_scaling_mode = str(event.value)
             self.action_recalculate()
+            self._refresh_solver_tab_if_active()
+        elif event.select.id == "solver_goal_select" and event.value is not None:
+            self._solver_goal = str(event.value)
             self._refresh_solver_tab_if_active()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
