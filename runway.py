@@ -310,7 +310,6 @@ class RevenueLagEngine:
             if self.ua_scaling_mode == "auto" and day > 0 and day % 7 == 0:
                 recent_days = all_days[-7:]
                 avg_cash_in = sum(d["cash_inflow"] for d in recent_days) / 7.0
-                avg_ops_cost = sum(d["ops_cost"] for d in recent_days) / 7.0
                 avg_spend = sum(d.get("ua_spend", current_spend) for d in recent_days) / 7.0 if any("ua_spend" in d for d in recent_days) else current_spend
 
                 if avg_spend > 0:
