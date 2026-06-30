@@ -35,7 +35,7 @@ EXPOSED_PARAMS = [
     ("organic_ratio", "in_organic", float),
     ("virality_k_factor", "in_kfactor", float),
     ("payer_pct", "in_payer_pct", float),
-    ("whale_spend", "in_whale_spend", float),
+    ("arppu", "in_arppu", float),
     ("video_ecpm", "in_video_ecpm", float),
     ("video_impressions", "in_video_impressions", float),
     ("platform_fee", "in_platform_fee", float),
@@ -57,7 +57,7 @@ DEFAULT_SCENARIOS = {
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 0.03, "whale_spend": 10.00,
+        "payer_pct": 0.03, "arppu": 0.75,
         "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
@@ -70,7 +70,7 @@ DEFAULT_SCENARIOS = {
         "daily_ua_spend": 15.00, "cpi": 0.80, "cpi_saturation": 0.40,
         "influencer_installs": 10.0,
         "organic_ratio": 0.12, "virality_k_factor": 0.04,
-        "payer_pct": 0.03, "whale_spend": 10.00,
+        "payer_pct": 0.03, "arppu": 0.75,
         "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 0.30,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
@@ -83,7 +83,7 @@ DEFAULT_SCENARIOS = {
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 0.03, "whale_spend": 10.00,
+        "payer_pct": 0.03, "arppu": 0.75,
         "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
@@ -142,14 +142,10 @@ class RevenueLagEngine:
         self.scale_speed = 1.10
 
         self.payer_pct = 0.03
+        self.arppu = 0.75
         self.platform_fee = 0.30
         self.video_ecpm = 80.00
         self.video_impressions = 0.33
-
-        self.minnow_spend, self.minnow_pct = 0.10, 0.55
-        self.tuna_spend, self.tuna_pct = 0.50, 0.27
-        self.dolphin_spend, self.dolphin_pct = 2.00, 0.155
-        self.whale_spend, self.whale_pct = 10.00, 0.025
 
         self.fixed_overhead_daily = 10.00
         self.server_cost_per_k_dau = 0.12
@@ -184,12 +180,7 @@ class RevenueLagEngine:
         return result
 
     def calculate_daily_payer_arppu(self) -> float:
-        return (
-            (self.minnow_pct * self.minnow_spend) +
-            (self.tuna_pct * self.tuna_spend) +
-            (self.dolphin_pct * self.dolphin_spend) +
-            (self.whale_pct * self.whale_spend)
-        )
+        return self.arppu
 
     def get_retention_rate(self, days_alive: int) -> float:
         if days_alive == 0:
@@ -732,7 +723,7 @@ class BusinessModelTUI(App):
                     yield from self.section(
                         "IAP Monetization",
                         self.labeled_input("Payer Conversion:", "in_payer_pct", self.engine.payer_pct),
-                        self.labeled_input("Whale Daily Spend ($):", "in_whale_spend", self.engine.whale_spend),
+                        self.labeled_input("ARPPU ($):", "in_arppu", self.engine.arppu),
                         section_id="sec_iap",
                     )
                     yield from self.section(
@@ -812,7 +803,7 @@ class BusinessModelTUI(App):
                 'in_d1_retention': 'D1 Retention',
                 'in_decay': 'Retention Decay',
                 'in_payer_pct': 'Payer Conversion',
-                'in_whale_spend': 'Whale Daily Spend',
+                'in_arppu': 'ARPPU',
                 'in_video_ecpm': 'Video eCPM',
                 'in_video_impressions': 'Impressions/DAU/Day',
                 'in_game_price': 'Game Price',
@@ -1158,14 +1149,14 @@ class BusinessModelTUI(App):
             mon_is_pct = True
             mon_is_currency = False
         else:
-            mon_label = "Payer Conv"
-            mon_id = "in_payer_pct"
-            mon_curr_raw = self.engine.payer_pct
-            mon_curr_disp = f"{mon_curr_raw*100:.1f}%"
-            mon_be = self.engine.solve_parameter("payer_pct", self.engine.get_final_bank, 0.0, 0.0, 1.0)
-            mon_ltv = self.engine.solve_parameter("payer_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 1.0)
-            mon_is_pct = True
-            mon_is_currency = False
+            mon_label = "ARPPU"
+            mon_id = "in_arppu"
+            mon_curr_raw = self.engine.arppu
+            mon_curr_disp = f"${mon_curr_raw:.2f}"
+            mon_be = self.engine.solve_parameter("arppu", self.engine.get_final_bank, 0.0, 0.01, 50.0)
+            mon_ltv = self.engine.solve_parameter("arppu", self.engine.get_ltv_cpi, 3.0, 0.01, 50.0)
+            mon_is_pct = False
+            mon_is_currency = True
 
         def fmt_target(val, is_pct, is_currency, current_metric, target):
             """Format solver result with status indicator."""
