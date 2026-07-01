@@ -7,7 +7,7 @@ Interactive terminal UI for modeling a game's financial runway over 12 months.
 Simulates 365 days of game economics — user acquisition, retention, monetization, and operating costs — with a distinction between accrued revenue and actual cash settlement. Shows 90 days of daily projections plus monthly summaries for months 4–12.
 
 Supports three business models:
-- **F2P (IAP + Ads)** — tiered payer spending + rewarded video ad revenue
+- **F2P (IAP + Ads)** — payer conversion × ARPPU + rewarded video ad revenue
 - **Premium (Buy Once)** — one-time purchase per install, no ads
 - **F2P + Remove Ads IAP** — free users generate ad revenue, paying users remove ads via one-time IAP
 
@@ -42,7 +42,7 @@ Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installe
 | | D1 Retention | Day-1 retention percentage |
 | | Retention Decay Rate | Power-law exponent for long-term retention |
 | **IAP Monetization** *(F2P only)* | Payer Conversion Rate | Fraction of DAU that spends |
-| | Avg Whale Daily Spend | Per-whale daily IAP spend |
+| | ARPPU ($) | Avg revenue per paying user per day |
 | **Ad Revenue** *(F2P, Remove Ads)* | Video Ad eCPM | Revenue per 1000 ad impressions |
 | | Ad Impressions / DAU / Day | Rewarded video ad frequency |
 | **Premium Pricing** *(Premium only)* | Game Price | One-time purchase price |
@@ -83,7 +83,7 @@ Scenarios are saved to `scenarios.json`. Delete that file to reset to defaults.
 
 The engine tracks each day's new installs as a cohort, applies a power-law retention curve to all historical cohorts to compute DAU, then calculates revenue and costs per model type:
 
-- **F2P:** IAP revenue from spending tiers × payer % + ad revenue from eCPM × impressions
+- **F2P:** IAP revenue from payer conversion × ARPPU + ad revenue from eCPM × impressions
 - **Premium:** New installs × game price, no recurring revenue
 - **Remove Ads:** New installs split — removers pay once, rest generate ad revenue daily
 
