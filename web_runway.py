@@ -8,6 +8,7 @@ plays) with portal revenue shares.
 
 import datetime
 import json
+import math
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -218,13 +219,20 @@ class WebGameEngine:
         return sum(self.get_retention_rate(d) for d in range(max_days))
 
     def calculate_ltv(self) -> float:
-        lifetime = self.calculate_lifetime()
-        net_rpm_per_impression = (self.base_rpm / 1000.0) * (1.0 - self.portal_rev_share)
-        ltv_rpm = lifetime * self.sessions_per_day * self.impressions_per_session * net_rpm_per_impression
+        total_retention = 0.0
+        weighted_rpm = 0.0
+        for d in range(365):
+            ret = self.get_retention_rate(d)
+            total_retention += ret
+            weighted_rpm += ret * self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + d))
+
+        avg_rpm = weighted_rpm / total_retention if total_retention > 0 else self.base_rpm
+        net_rpm_per_impression = (avg_rpm / 1000.0) * (1.0 - self.portal_rev_share)
+        ltv_rpm = total_retention * self.sessions_per_day * self.impressions_per_session * net_rpm_per_impression
 
         iap_ltv = 0.0
         if self._is_iap_supported() and self.iap_payer_pct > 0:
-            iap_ltv = self.iap_payer_pct * self.iap_avg_purchase
+            iap_ltv = self.iap_payer_pct * self.iap_avg_purchase * (1.0 - self.portal_rev_share)
 
         return ltv_rpm + iap_ltv
 
@@ -243,7 +251,7 @@ class WebGameEngine:
         # as a single lifetime event rather than a recurring daily charge.
         iap_rev = 0.0
         if self._is_iap_supported() and self.iap_payer_pct > 0:
-            iap_rev = new_users * self.iap_payer_pct * self.iap_avg_purchase
+            iap_rev = new_users * self.iap_payer_pct * self.iap_avg_purchase * (1.0 - self.portal_rev_share)
 
         return net_rpm + iap_rev
 
@@ -284,7 +292,7 @@ class WebGameEngine:
             plays = dau * self.sessions_per_day
             cumulative_plays += plays
 
-            current_rpm = self.base_rpm * (1.0 + self.rpm_growth_rate * day)
+            current_rpm = self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + day))
 
             day_accrued_net_revenue = self._compute_day_revenue(dau, plays, current_rpm, total_new)
             accrued_revenue_history[day] = day_accrued_net_revenue
@@ -1095,9 +1103,6 @@ class WebGameTUI(App):
             tmp.base_rpm = defaults["rpm"]
             tmp.organic_plays_per_day = defaults["organic_plays"]
             tmp.min_plays_per_day = defaults["min_plays"]
-            if not defaults["iap"]:
-                tmp.iap_payer_pct = 0.0
-                tmp.iap_avg_purchase = 0.0
 
             tl = tmp.calculate_timeline()
             summary = WebGameEngine.summarize_timeline(tl)
@@ -1242,17 +1247,10 @@ class WebGameTUI(App):
                 self.engine.base_rpm = defaults.get("rpm", 2.00)
                 self.engine.organic_plays_per_day = float(defaults.get("organic_plays", 3000))
                 self.engine.min_plays_per_day = float(defaults.get("min_plays", 0))
-                iap_supported = defaults.get("iap", False)
-                if not iap_supported:
-                    self.engine.iap_payer_pct = 0.0
-                    self.engine.iap_avg_purchase = 0.0
                 self.query_one("#in_portal_share", Input).value = str(self.engine.portal_rev_share)
                 self.query_one("#in_rpm", Input).value = str(self.engine.base_rpm)
                 self.query_one("#in_organic_plays", Input).value = str(self.engine.organic_plays_per_day)
                 self.query_one("#in_min_plays", Input).value = str(self.engine.min_plays_per_day)
-                if not iap_supported:
-                    self.query_one("#in_iap_payer", Input).value = "0.0"
-                    self.query_one("#in_iap_avg", Input).value = "0.0"
                 self._apply_portal_iap_visibility()
             finally:
                 self._loading_scenario = False
