@@ -48,47 +48,51 @@ EXPOSED_PARAMS = [
     ("ad_removal_price", "in_ad_removal_price", float),
     ("ad_removal_pct", "in_ad_removal_pct", float),
     ("start_date", "in_start_date", str),
+    ("starting_capital", "in_starting_capital", float),
 ]
 
 DEFAULT_SCENARIOS = {
     "F2P Base Case": {
         "model_type": MODEL_F2P,
+        "starting_capital": 1000.0,
         "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 0.03, "arppu": 0.75,
-        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
+        "payer_pct": 3.0, "arppu": 0.75,
+        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
-        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
     },
     "Premium $4.99": {
         "model_type": MODEL_PREMIUM,
+        "starting_capital": 1000.0,
         "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 15.00, "cpi": 0.80, "cpi_saturation": 0.40,
         "influencer_installs": 10.0,
         "organic_ratio": 0.12, "virality_k_factor": 0.04,
-        "payer_pct": 0.03, "arppu": 0.75,
-        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 0.30,
+        "payer_pct": 3.0, "arppu": 0.75,
+        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 45.0, "decay_exponent": 0.50,
-        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
     },
     "F2P Remove Ads $2.99": {
         "model_type": MODEL_REMOVE_ADS,
+        "starting_capital": 1000.0,
         "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
         "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 0.03, "arppu": 0.75,
-        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 0.30,
+        "payer_pct": 3.0, "arppu": 0.75,
+        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
-        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 0.05,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
     },
 }
 
@@ -141,9 +145,9 @@ class RevenueLagEngine:
         self.max_daily_budget = 50.0
         self.scale_speed = 1.10
 
-        self.payer_pct = 0.03
+        self.payer_pct = 3.0
         self.arppu = 0.75
-        self.platform_fee = 0.30
+        self.platform_fee = 30.0
         self.video_ecpm = 80.00
         self.video_impressions = 0.33
 
@@ -159,8 +163,9 @@ class RevenueLagEngine:
 
         self.game_price = 4.99
         self.ad_removal_price = 2.99
-        self.ad_removal_pct = 0.05
+        self.ad_removal_pct = 5.0
         self.start_date = datetime.date.today().strftime("%Y-%m-%d")
+        self.starting_capital = 1000.0
 
     def apply_params(self, params: dict):
         if "model_type" in params:
@@ -200,44 +205,63 @@ class RevenueLagEngine:
         ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
 
         if self.model_type == MODEL_PREMIUM:
-            return self.game_price * (1.0 - self.platform_fee)
+            return self.game_price * (1.0 - self.platform_fee / 100.0)
 
         if self.model_type == MODEL_REMOVE_ADS:
-            iap_ltv = self.ad_removal_pct * self.ad_removal_price * (1.0 - self.platform_fee)
-            ad_ltv = (1.0 - self.ad_removal_pct) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
+            iap_ltv = (self.ad_removal_pct / 100.0) * self.ad_removal_price * (1.0 - self.platform_fee / 100.0)
+            ad_ltv = (1.0 - self.ad_removal_pct / 100.0) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
             return iap_ltv + ad_ltv
 
-        iap_arpu = self.payer_pct * daily_payer_spend
-        net_iap = iap_arpu * (1.0 - self.platform_fee)
+        iap_arpu = (self.payer_pct / 100.0) * daily_payer_spend
+        net_iap = iap_arpu * (1.0 - self.platform_fee / 100.0)
         net_ads = ad_arpu_per_dau * (1.0 - self.ad_mediation_tax)
         return (net_iap + net_ads) * lifetime
 
+    def _compute_blended_cpi(self, days: int = 365) -> float:
+        """Install-weighted average effective CPI over the simulation period,
+        accounting for CPI saturation as cumulative paid installs grow."""
+        if self.daily_ua_spend <= 0 or self.cpi <= 0:
+            return max(self.cpi, 0.01)
+        cumulative_paid = 0.0
+        total_cost = 0.0
+        total_installs = 0.0
+        for _ in range(days):
+            effective_cpi = self.cpi * (1 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000))
+            installs = self.daily_ua_spend / effective_cpi if effective_cpi > 0 else 0
+            total_cost += self.daily_ua_spend
+            total_installs += installs
+            cumulative_paid += installs
+        if total_installs <= 0:
+            return max(self.cpi, 0.01)
+        return total_cost / total_installs
+
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
-        return ltv / self.cpi if self.cpi > 0 else float("inf")
+        effective_cpi = max(self._compute_blended_cpi(), 0.01)
+        return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
     def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float) -> float:
         if self.model_type == MODEL_PREMIUM:
             gross_rev = total_new_installs * self.game_price
-            return gross_rev * (1.0 - self.platform_fee)
+            return gross_rev * (1.0 - self.platform_fee / 100.0)
         elif self.model_type == MODEL_REMOVE_ADS:
-            ad_removers = total_new_installs * self.ad_removal_price
+            ad_removers = total_new_installs * (self.ad_removal_pct / 100.0)
             iap_rev = ad_removers * self.ad_removal_price
-            ad_viewing_dau = dau * (1.0 - self.ad_removal_pct)
+            ad_viewing_dau = dau * (1.0 - self.ad_removal_pct / 100.0)
             gross_ads = ad_viewing_dau * ad_arpu_per_dau
-            net_iap = iap_rev * (1.0 - self.platform_fee)
+            net_iap = iap_rev * (1.0 - self.platform_fee / 100.0)
             net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
             return net_iap + net_ads
         else:
-            gross_iap = dau * self.payer_pct * daily_payer_spend
+            gross_iap = dau * (self.payer_pct / 100.0) * daily_payer_spend
             gross_ads = dau * ad_arpu_per_dau
-            net_iap = gross_iap * (1.0 - self.platform_fee)
+            net_iap = gross_iap * (1.0 - self.platform_fee / 100.0)
             net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
             return net_iap + net_ads
 
     def calculate_timeline(self):
         all_days = []
-        cumulative_bank_balance = 0.0
+        cumulative_bank_balance = self.starting_capital
         cohort_history = {}
         accrued_revenue_history = {}
         cumulative_paid_installs = 0.0
@@ -343,12 +367,12 @@ class RevenueLagEngine:
         return timeline
 
     @staticmethod
-    def summarize_timeline(timeline: list[dict]) -> dict:
+    def summarize_timeline(timeline: list[dict], starting_capital: float = 0.0) -> dict:
         peak_dau = max(d["dau"] for d in timeline)
         total_accrued = sum(d["accrued_rev"] for d in timeline)
         final_bank = timeline[-1]["bank_balance"]
         break_even = next(
-            (i for i, d in enumerate(timeline) if d["bank_balance"] >= 0), None
+            (i for i, d in enumerate(timeline) if d["bank_balance"] >= starting_capital), None
         )
         return {
             "peak_dau": peak_dau,
@@ -408,7 +432,7 @@ class RevenueLagEngine:
             for spend in spend_levels:
                 self.daily_ua_spend = spend
                 timeline = self.calculate_timeline()
-                summary = self.summarize_timeline(timeline)
+                summary = self.summarize_timeline(timeline, self.starting_capital)
                 ltv = self.calculate_ltv()
                 ratio = self.calculate_ltv_cpi_ratio()
                 results.append({
@@ -693,8 +717,9 @@ class BusinessModelTUI(App):
 
                 with Vertical(id="params-scroll"):
                     yield from self.section(
-                        "Launch Date",
+                        "Launch & Capital",
                         self.labeled_input("Start Date (YYYY-MM-DD):", "in_start_date", self.engine.start_date, type=None),
+                        self.labeled_input("Starting Capital ($):", "in_starting_capital", self.engine.starting_capital),
                         collapsed=False,
                     )
                     yield from self.section(
@@ -722,7 +747,7 @@ class BusinessModelTUI(App):
                     )
                     yield from self.section(
                         "IAP Monetization",
-                        self.labeled_input("Payer Conversion:", "in_payer_pct", self.engine.payer_pct),
+                        self.labeled_input("Payer Conversion (%):", "in_payer_pct", self.engine.payer_pct),
                         self.labeled_input("ARPPU ($):", "in_arppu", self.engine.arppu),
                         section_id="sec_iap",
                     )
@@ -745,7 +770,7 @@ class BusinessModelTUI(App):
                     )
                     yield from self.section(
                         "Platform Fees",
-                        self.labeled_input("Platform Fee:", "in_platform_fee", self.engine.platform_fee),
+                        self.labeled_input("Platform Fee (%):", "in_platform_fee", self.engine.platform_fee),
                         self.labeled_input("Payout Delay (Days):", "in_delay", self.engine.payout_delay_days, type="integer"),
                     )
                     yield from self.section(
@@ -1098,7 +1123,7 @@ class BusinessModelTUI(App):
 
     def _add_compare_row(self, cmp, name, engine):
         timeline = engine.calculate_timeline()
-        summary = RevenueLagEngine.summarize_timeline(timeline)
+        summary = RevenueLagEngine.summarize_timeline(timeline, engine.starting_capital)
         be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
         ltv = engine.calculate_ltv()
         ratio = engine.calculate_ltv_cpi_ratio()
@@ -1143,9 +1168,9 @@ class BusinessModelTUI(App):
             mon_label = "Ad Removal Conv"
             mon_id = "in_ad_removal_pct"
             mon_curr_raw = self.engine.ad_removal_pct
-            mon_curr_disp = f"{mon_curr_raw*100:.1f}%"
-            mon_be = self.engine.solve_parameter("ad_removal_pct", self.engine.get_final_bank, 0.0, 0.0, 1.0)
-            mon_ltv = self.engine.solve_parameter("ad_removal_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 1.0)
+            mon_curr_disp = f"{mon_curr_raw:.1f}%"
+            mon_be = self.engine.solve_parameter("ad_removal_pct", self.engine.get_final_bank, 0.0, 0.0, 100.0)
+            mon_ltv = self.engine.solve_parameter("ad_removal_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 100.0)
             mon_is_pct = True
             mon_is_currency = False
         else:
@@ -1166,7 +1191,7 @@ class BusinessModelTUI(App):
                     return "[dim yellow]already met ✓[/]"
                 else:
                     return "[dim red]unachievable[/]"
-            v = val * 100.0 if is_pct else val
+            v = val
             return f"[bold green]${v:.2f}[/]" if is_currency else f"[bold green]{v:.1f}%[/]"
 
         # Get current metrics for status checking
