@@ -2,14 +2,23 @@
 
 ## Overview
 
-A single-file Python TUI application that models a free-to-play mobile game's 12-month financial runway. Uses the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
+Two Textual TUI applications that model game financial runways over 12 months. Each is a standalone single-file Python app using the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
+
+- **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, and Remove Ads business models with CPI-based UA, ARPPU monetization, and ad revenue.
+- **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social/Messaging, Custom Web) with session-based ad impressions and CDN costs.
 
 ## Running
 
 ```bash
-./runway.sh        # cd's to project dir, runs via venv
-.venv/bin/python runway.py   # direct
+./runway.sh        # mobile game simulator (cd's to project dir, runs via venv)
+./web_runway.sh    # web game simulator
+.venv/bin/python runway.py       # direct
+.venv/bin/python web_runway.py   # direct
 ```
+
+## Documentation Maintenance
+
+**Keep `README.md` in sync with the code.** When you add, rename, or remove a parameter, tab, feature, or key binding in *either* app, update `README.md` in the same change. The parameters tables, tabs, and scenario lists are the most commonly stale sections.
 
 No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key packages: `textual`, `rich`.
 
@@ -17,13 +26,21 @@ No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key pack
 
 ## Architecture
 
-Everything in `runway.py` (~525 lines):
+Both apps share the same structural pattern. Each is a single file:
+
+**`runway.py`** (~1300 lines):
 
 - **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 3 built-in scenarios on first run.
-- **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, and scaling OpEx. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
-- **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + 16 parameter inputs. Two tabs: "12-Month Runway" (timeline table) and "Compare Scenarios" (side-by-side summary metrics).
+- **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, starting capital, auto-scaling UA, and scaling OpEx. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
+- **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections (~25 inputs). Four tabs: "12-Month Runway" (timeline table), "Compare Scenarios" (side-by-side summary metrics), "Spend Analysis" (sensitivity table), and "Target Solver" (goal-seeking).
 
-`EXPOSED_PARAMS` is the single source of truth linking engine attributes ↔ widget IDs ↔ type cast functions. Both `action_recalculate()` and `_load_scenario()` iterate over it generically — no per-field boilerplate.
+**`web_runway.py`** (~1300 lines):
+
+- **`ScenarioStore`** — JSON-backed (`web_scenarios.json`) CRUD. Auto-seeds 4 built-in scenarios.
+- **`WebGameEngine`** — Simulation engine for RPM-based web game economics. Models organic/paid plays, session-based ad impressions, fill rate, portal rev-shares, IAP, CDN costs, and viral spread.
+- **`WebGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Portal Comparison" (same params across all four portals), and "Target Solver".
+
+`EXPOSED_PARAMS` in each file is the single source of truth linking engine attributes ↔ widget IDs ↔ type cast functions. Both `action_recalculate()` and `_load_scenario()` iterate over it generically — no per-field boilerplate.
 
 ## Key Patterns
 
@@ -44,4 +61,6 @@ Everything in `runway.py` (~525 lines):
 - Monthly rows show aggregated totals (summed revenue/expenses), not daily averages. Values will be ~30x larger than daily rows.
 - Removing `scenarios.json` is the only way to reset scenarios — there's no in-app "reset to defaults".
 - **Textual CSS ≠ web CSS.** Bare numbers are character cells (not pixels); `Input` height includes its border (so `height: 3` = 1 border + 1 content + 1 border); `Input` does not auto-fill width inside a `Vertical` (hence the base `Input { width: 100% }` rule). Vertical gaps between fields come from `Label { margin-top: 1 }`, not `Input` margins.
-- **Sidebar fields go through `labeled_input()`**, which yields a `Label` + `Input` pair with a derived label id (`in_foo` → `lbl_foo`). Add new fields by calling it; don't hand-place `Label`/`Input` separately. Group headers (`"IAP MONETIZATION"`, etc.) are standalone `Label(..., classes="setting-group")`.
+- **Collapsible sidebar sections:** Parameters are grouped into `Collapsible` widgets via `section()`. Most start collapsed; only "Launch & Capital" and "Marketing Capital" start expanded.
+- **Sidebar fields go through `labeled_input()`**, which yields a `Label` + `Input` pair with a derived label id (`in_foo` → `lbl_foo`). Add new fields by calling it; don't hand-place `Label`/`Input` separately. Group headers (`"SCENARIO"`, `"BUSINESS MODEL"`) are standalone `Label(..., classes="setting-group")`.
+- **Remember to update `README.md`** when parameters, tabs, or key bindings change (see Documentation Maintenance above).
