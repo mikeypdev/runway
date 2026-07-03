@@ -23,15 +23,15 @@ WEB_SCENARIOS_FILE = Path("web_scenarios.json")
 
 PORTALS = {
     "Web Portal": {
-        "rev_share": 0.50, "rpm": 2.00, "iap": False,
+        "rev_share": 50.0, "rpm": 2.00, "iap": False,
         "organic_plays": 3000, "min_plays": 0,
     },
     "Playable Ads": {
-        "rev_share": 0.60, "rpm": 1.20, "iap": False,
+        "rev_share": 60.0, "rpm": 1.20, "iap": False,
         "organic_plays": 6000, "min_plays": 0,
     },
     "Social/Messaging": {
-        "rev_share": 0.70, "rpm": 1.50, "iap": True,
+        "rev_share": 70.0, "rpm": 1.50, "iap": True,
         "organic_plays": 2000, "min_plays": 0,
     },
     "Custom Web": {
@@ -43,14 +43,17 @@ PORTALS = {
 PORTAL_OPTIONS = [(n, n) for n in PORTALS]
 
 EXPOSED_PARAMS = [
+    ("starting_capital", "in_starting_capital", float),
     ("organic_plays_per_day", "in_organic_plays", float),
     ("external_ua_spend", "in_ext_ua_spend", float),
     ("external_cpi", "in_ext_cpi", float),
+    ("cpi_saturation", "in_cpi_saturation", float),
     ("viral_k", "in_viral_k", float),
     ("day_1_retention", "in_d1_retention", float),
     ("decay_exponent", "in_decay", float),
     ("sessions_per_day", "in_sessions_day", float),
     ("impressions_per_session", "in_imp_session", float),
+    ("ad_fill_rate", "in_ad_fill_rate", float),
     ("base_rpm", "in_rpm", float),
     ("rpm_growth_rate", "in_rpm_growth", float),
     ("min_plays_per_day", "in_min_plays", float),
@@ -67,13 +70,15 @@ EXPOSED_PARAMS = [
 DEFAULT_SCENARIOS = {
     "Portal Ad-Only": {
         "portal": "Web Portal",
-        "portal_rev_share": 0.50,
+        "starting_capital": 5000.0,
+        "portal_rev_share": 50.0,
         "organic_plays_per_day": 3000, "min_plays_per_day": 0,
-        "external_ua_spend": 0.0, "external_cpi": 0.30,
+        "external_ua_spend": 0.0, "external_cpi": 0.30, "cpi_saturation": 0.3,
         "viral_k": 0.02,
         "day_1_retention": 18.0, "decay_exponent": 0.55,
         "sessions_per_day": 1.3,
         "impressions_per_session": 2.5,
+        "ad_fill_rate": 80.0,
         "base_rpm": 2.00, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 0.0, "iap_avg_purchase": 0.0,
         "payout_delay_days": 30,
@@ -82,13 +87,15 @@ DEFAULT_SCENARIOS = {
     },
     "Playable Ads Reach": {
         "portal": "Playable Ads",
-        "portal_rev_share": 0.60,
+        "starting_capital": 5000.0,
+        "portal_rev_share": 60.0,
         "organic_plays_per_day": 6000, "min_plays_per_day": 0,
-        "external_ua_spend": 0.0, "external_cpi": 0.30,
+        "external_ua_spend": 0.0, "external_cpi": 0.30, "cpi_saturation": 0.3,
         "viral_k": 0.015,
         "day_1_retention": 15.0, "decay_exponent": 0.60,
         "sessions_per_day": 1.1,
         "impressions_per_session": 2.0,
+        "ad_fill_rate": 80.0,
         "base_rpm": 1.20, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 0.0, "iap_avg_purchase": 0.0,
         "payout_delay_days": 45,
@@ -97,30 +104,34 @@ DEFAULT_SCENARIOS = {
     },
     "Social IAP Hybrid": {
         "portal": "Social/Messaging",
-        "portal_rev_share": 0.70,
+        "starting_capital": 5000.0,
+        "portal_rev_share": 70.0,
         "organic_plays_per_day": 2000, "min_plays_per_day": 0,
-        "external_ua_spend": 5.0, "external_cpi": 0.40,
+        "external_ua_spend": 5.0, "external_cpi": 0.40, "cpi_saturation": 0.3,
         "viral_k": 0.03,
         "day_1_retention": 20.0, "decay_exponent": 0.50,
         "sessions_per_day": 1.5,
         "impressions_per_session": 2.5,
+        "ad_fill_rate": 80.0,
         "base_rpm": 1.50, "rpm_growth_rate": 0.0,
-        "iap_payer_pct": 0.01, "iap_avg_purchase": 1.99,
+        "iap_payer_pct": 1.0, "iap_avg_purchase": 1.99,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 200.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
     "Custom Web Direct": {
         "portal": "Custom Web",
+        "starting_capital": 5000.0,
         "portal_rev_share": 0.0,
         "organic_plays_per_day": 0, "min_plays_per_day": 0,
-        "external_ua_spend": 20.0, "external_cpi": 0.50,
+        "external_ua_spend": 20.0, "external_cpi": 0.50, "cpi_saturation": 0.3,
         "viral_k": 0.025,
         "day_1_retention": 17.0, "decay_exponent": 0.55,
         "sessions_per_day": 1.3,
         "impressions_per_session": 3.0,
+        "ad_fill_rate": 80.0,
         "base_rpm": 1.00, "rpm_growth_rate": 0.0,
-        "iap_payer_pct": 0.015, "iap_avg_purchase": 2.99,
+        "iap_payer_pct": 1.5, "iap_avg_purchase": 2.99,
         "payout_delay_days": 15,
         "fixed_overhead_daily": 250.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
@@ -164,20 +175,23 @@ class ScenarioStore:
 class WebGameEngine:
     def __init__(self):
         self.portal = "Web Portal"
-        self.portal_rev_share = 0.50
+        self.portal_rev_share = 50.0
         self.base_rpm = 2.00
         self.rpm_growth_rate = 0.0
         self.min_plays_per_day = 0.0
 
+        self.starting_capital = 5000.0
         self.organic_plays_per_day = 3000.0
         self.external_ua_spend = 0.0
         self.external_cpi = 0.30
+        self.cpi_saturation = 0.3
         self.viral_k = 0.02
 
         self.day_1_retention = 18.0
         self.decay_exponent = 0.55
         self.sessions_per_day = 1.3
         self.impressions_per_session = 2.5
+        self.ad_fill_rate = 80.0
 
         self.iap_payer_pct = 0.0
         self.iap_avg_purchase = 0.0
@@ -213,7 +227,7 @@ class WebGameEngine:
         if days_alive == 1:
             return d1_rate
         retained_rate = d1_rate * (days_alive ** -self.decay_exponent)
-        return max(retained_rate, d1_rate * 0.12)
+        return max(retained_rate, d1_rate * 0.04)
 
     def calculate_lifetime(self, max_days: int = 365) -> float:
         return sum(self.get_retention_rate(d) for d in range(max_days))
@@ -224,43 +238,66 @@ class WebGameEngine:
         for d in range(365):
             ret = self.get_retention_rate(d)
             total_retention += ret
-            weighted_rpm += ret * self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + d))
+            current_rpm = max(self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + d)), 0.0)
+            weighted_rpm += ret * current_rpm
 
         avg_rpm = weighted_rpm / total_retention if total_retention > 0 else self.base_rpm
-        net_rpm_per_impression = (avg_rpm / 1000.0) * (1.0 - self.portal_rev_share)
+        net_rpm_per_impression = (avg_rpm / 1000.0) * (1.0 - self.portal_rev_share / 100.0) * (self.ad_fill_rate / 100.0)
         ltv_rpm = total_retention * self.sessions_per_day * self.impressions_per_session * net_rpm_per_impression
 
         iap_ltv = 0.0
         if self._is_iap_supported() and self.iap_payer_pct > 0:
-            iap_ltv = self.iap_payer_pct * self.iap_avg_purchase * (1.0 - self.portal_rev_share)
+            iap_ltv = (self.iap_payer_pct / 100.0) * self.iap_avg_purchase * (1.0 - self.portal_rev_share / 100.0)
 
         return ltv_rpm + iap_ltv
 
+    def _compute_blended_cpi(self, days: int = 365) -> float:
+        """Install-weighted average effective CPI over the simulation period,
+        accounting for CPI saturation as cumulative paid installs grow."""
+        if self.external_ua_spend <= 0 or self.external_cpi <= 0:
+            return max(self.external_cpi, 0.01)
+        cumulative_paid = 0.0
+        total_cost = 0.0
+        total_installs = 0.0
+        for _ in range(days):
+            effective_cpi = self.external_cpi
+            if self.cpi_saturation > 0:
+                saturation_factor = 1.0 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000)
+                effective_cpi = self.external_cpi * saturation_factor
+            installs = self.external_ua_spend / effective_cpi
+            total_cost += self.external_ua_spend
+            total_installs += installs
+            cumulative_paid += installs
+        if total_installs <= 0:
+            return max(self.external_cpi, 0.01)
+        return total_cost / total_installs
+
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
-        effective_cpi = max(self.external_cpi, 0.01)
+        effective_cpi = max(self._compute_blended_cpi(), 0.01)
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
     def _compute_day_revenue(self, dau: float, plays: float, current_rpm: float, new_users: float = 0.0) -> float:
-        total_impressions = plays * self.impressions_per_session
+        total_impressions = plays * self.impressions_per_session * (self.ad_fill_rate / 100.0)
         gross_rpm = (total_impressions / 1000.0) * current_rpm
-        net_rpm = gross_rpm * (1.0 - self.portal_rev_share)
+        net_rpm = gross_rpm * (1.0 - self.portal_rev_share / 100.0)
 
         # IAP is modeled as a one-time first purchase by a fraction of each
         # day's NEW users — consistent with calculate_ltv(), which treats IAP
         # as a single lifetime event rather than a recurring daily charge.
         iap_rev = 0.0
         if self._is_iap_supported() and self.iap_payer_pct > 0:
-            iap_rev = new_users * self.iap_payer_pct * self.iap_avg_purchase * (1.0 - self.portal_rev_share)
+            iap_rev = new_users * (self.iap_payer_pct / 100.0) * self.iap_avg_purchase * (1.0 - self.portal_rev_share / 100.0)
 
         return net_rpm + iap_rev
 
     def calculate_timeline(self):
         all_days = []
-        cumulative_bank_balance = 0.0
+        cumulative_bank_balance = self.starting_capital
         cohort_history: dict[int, float] = {}
         accrued_revenue_history: dict[int, float] = {}
         cumulative_plays = 0.0
+        cumulative_paid_installs = 0.0
         start_date = datetime.date.fromisoformat(self.start_date)
 
         for day in range(365):
@@ -272,8 +309,13 @@ class WebGameEngine:
                 surviving_historical_users += initial_players * self.get_retention_rate(days_elapsed)
 
             ext_players = 0.0
+            effective_cpi = self.external_cpi
             if self.external_ua_spend > 0 and self.external_cpi > 0:
-                ext_players = self.external_ua_spend / self.external_cpi
+                if self.cpi_saturation > 0:
+                    saturation_factor = 1.0 + self.cpi_saturation * math.log(1 + cumulative_paid_installs / 10000)
+                    effective_cpi = self.external_cpi * saturation_factor
+                ext_players = self.external_ua_spend / effective_cpi
+                cumulative_paid_installs += ext_players
 
             traction = min(cumulative_plays / 500_000, 1.5)
             effective_organic = self.organic_plays_per_day * (1.0 + traction)
@@ -292,7 +334,7 @@ class WebGameEngine:
             plays = dau * self.sessions_per_day
             cumulative_plays += plays
 
-            current_rpm = self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + day))
+            current_rpm = max(self.base_rpm * (1.0 + self.rpm_growth_rate * math.log(1 + day)), 0.0)
 
             day_accrued_net_revenue = self._compute_day_revenue(dau, plays, current_rpm, total_new)
             accrued_revenue_history[day] = day_accrued_net_revenue
@@ -353,13 +395,13 @@ class WebGameEngine:
         return timeline
 
     @staticmethod
-    def summarize_timeline(timeline: list[dict]) -> dict:
+    def summarize_timeline(timeline: list[dict], starting_capital: float = 0.0) -> dict:
         peak_dau = max(d["dau"] for d in timeline)
         total_accrued = sum(d["accrued_rev"] for d in timeline)
         total_plays = sum(d["plays"] for d in timeline)
         final_bank = timeline[-1]["bank_balance"]
         break_even = next(
-            (i for i, d in enumerate(timeline) if d["bank_balance"] >= 0), None
+            (i for i, d in enumerate(timeline) if d["bank_balance"] >= starting_capital), None
         )
         return {
             "peak_dau": peak_dau,
@@ -418,7 +460,7 @@ class WebGameEngine:
             for rpm in rpm_levels:
                 self.base_rpm = rpm
                 timeline = self.calculate_timeline()
-                summary = self.summarize_timeline(timeline)
+                summary = self.summarize_timeline(timeline, self.starting_capital)
                 ltv = self.calculate_ltv()
                 results.append({
                     "rpm": rpm,
@@ -696,8 +738,9 @@ class WebGameTUI(App):
 
                 with Vertical(id="params-scroll"):
                     yield from self.section(
-                        "Launch Date",
+                        "Launch & Capital",
                         self.labeled_input("Start Date (YYYY-MM-DD):", "in_start_date", self.engine.start_date, type=None),
+                        self.labeled_input("Starting Capital ($):", "in_starting_capital", self.engine.starting_capital),
                         collapsed=False,
                     )
                     yield from self.section(
@@ -706,6 +749,7 @@ class WebGameTUI(App):
                         self.labeled_input("Min Guaranteed Plays:", "in_min_plays", self.engine.min_plays_per_day),
                         self.labeled_input("External UA Spend ($):", "in_ext_ua_spend", self.engine.external_ua_spend),
                         self.labeled_input("External CPI ($):", "in_ext_cpi", self.engine.external_cpi),
+                        self.labeled_input("CPI Saturation:", "in_cpi_saturation", self.engine.cpi_saturation),
                         self.labeled_input("Viral K-Factor:", "in_viral_k", self.engine.viral_k),
                         collapsed=False,
                     )
@@ -715,18 +759,19 @@ class WebGameTUI(App):
                         self.labeled_input("Retention Decay:", "in_decay", self.engine.decay_exponent),
                         self.labeled_input("Sessions per Day:", "in_sessions_day", self.engine.sessions_per_day),
                         self.labeled_input("Ad Impressions/Session:", "in_imp_session", self.engine.impressions_per_session),
+                        self.labeled_input("Ad Fill Rate (%):", "in_ad_fill_rate", self.engine.ad_fill_rate),
                         collapsed=False,
                     )
                     yield from self.section(
                         "Ad Monetization (RPM)",
                         self.labeled_input("Base RPM ($):", "in_rpm", self.engine.base_rpm),
                         self.labeled_input("RPM Growth Rate:", "in_rpm_growth", self.engine.rpm_growth_rate),
-                        self.labeled_input("Portal Rev Share:", "in_portal_share", self.engine.portal_rev_share),
+                        self.labeled_input("Portal Rev Share (%):", "in_portal_share", self.engine.portal_rev_share),
                         collapsed=False,
                     )
                     yield from self.section(
                         "IAP Monetization",
-                        self.labeled_input("Payer Conversion:", "in_iap_payer", self.engine.iap_payer_pct),
+                        self.labeled_input("Payer Conversion (%):", "in_iap_payer", self.engine.iap_payer_pct),
                         self.labeled_input("Avg Purchase ($):", "in_iap_avg", self.engine.iap_avg_purchase),
                         section_id="sec_iap",
                     )
@@ -946,7 +991,7 @@ class WebGameTUI(App):
 
         ltv = self.engine.calculate_ltv()
         current_rpm = self.engine.base_rpm
-        net_rpm = current_rpm * (1.0 - self.engine.portal_rev_share)
+        net_rpm = current_rpm * (1.0 - self.engine.portal_rev_share / 100.0)
         peak_dau = max(d["dau"] for d in timeline_data)
         final_bank = timeline_data[-1]["bank_balance"]
         bank_color = "green" if final_bank >= 0 else "bold red"
@@ -1075,7 +1120,7 @@ class WebGameTUI(App):
 
     def _add_compare_row(self, cmp, name, engine):
         timeline = engine.calculate_timeline()
-        summary = WebGameEngine.summarize_timeline(timeline)
+        summary = WebGameEngine.summarize_timeline(timeline, engine.starting_capital)
         be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
         ltv = engine.calculate_ltv()
         bank_text = Text(f"${summary['final_bank']:,.2f}")
@@ -1105,7 +1150,7 @@ class WebGameTUI(App):
             tmp.min_plays_per_day = defaults["min_plays"]
 
             tl = tmp.calculate_timeline()
-            summary = WebGameEngine.summarize_timeline(tl)
+            summary = WebGameEngine.summarize_timeline(tl, tmp.starting_capital)
             ltv = tmp.calculate_ltv()
 
             be = str(summary["break_even_day"]) if summary["break_even_day"] is not None else "—"
@@ -1243,7 +1288,7 @@ class WebGameTUI(App):
             try:
                 self.engine.portal = str(event.value)
                 defaults = PORTALS.get(str(event.value), {})
-                self.engine.portal_rev_share = defaults.get("rev_share", 0.50)
+                self.engine.portal_rev_share = defaults.get("rev_share", 50.0)
                 self.engine.base_rpm = defaults.get("rpm", 2.00)
                 self.engine.organic_plays_per_day = float(defaults.get("organic_plays", 3000))
                 self.engine.min_plays_per_day = float(defaults.get("min_plays", 0))
