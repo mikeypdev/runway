@@ -324,6 +324,22 @@ class RevenueLagEngine:
             lines.append(f"  IAP per install:      ${iap_component:.2f} ({self.payer_pct:.0f}% × ${daily_payer_spend:.2f}/day)")
             lines.append(f"  Ad revenue per install: ${ad_component:.2f} (${ad_arpu_per_dau:.3f}/DAU/day)")
 
+        timeline = self.calculate_timeline()
+        daily_rows = timeline[:30]
+        avg_dau = sum(d["dau"] for d in daily_rows) / len(daily_rows)
+        avg_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)
+        avg_server = avg_dau / 1000.0 * self.server_cost_per_k_dau
+        avg_support = avg_dau / 1000.0 * self.support_cost_per_k_dau
+        total_daily_cost = self.fixed_overhead_daily + avg_server + avg_support + self.daily_ua_spend
+        lines.append(f"  Avg DAU (month 1):    {avg_dau:,.0f}")
+        lines.append(f"  Daily revenue:        ${avg_rev:.2f}")
+        lines.append(f"  Server cost:          ${avg_server:.2f}/day")
+        lines.append(f"  Support cost:         ${avg_support:.2f}/day")
+        lines.append(f"  Fixed overhead:       ${self.fixed_overhead_daily:.2f}/day")
+        if self.daily_ua_spend > 0:
+            lines.append(f"  UA spend:             ${self.daily_ua_spend:.2f}/day")
+        lines.append(f"  [bold]Daily margin: ${avg_rev - total_daily_cost:+.2f}/day (rev ${avg_rev:.0f} − costs ${total_daily_cost:.0f})[/]")
+
         lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${blended_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - blended_cpi:+.2f}/install[/]")
         return lines
 
@@ -1471,6 +1487,23 @@ class BusinessModelTUI(App):
                 "mon": mon_ltv,
                 "mon_is_pct": mon_is_pct,
             }
+
+        sensitivity = self.engine.calculate_sensitivity()
+        lines.append("")
+        lines.append("[bold]Spend Sensitivity[/]")
+        lines.append(f"  {'Spend':>8}  {'Total Rev':>12}  {'LTV:CPI':>8}  {'Year-End':>12}  {'Break-even':>10}")
+        for r in sensitivity:
+            be_str = str(r["break_even"]) if r["break_even"] is not None else "—"
+            is_cur = abs(r["spend"] - self.engine.daily_ua_spend) < 0.01
+            marker = "*" if is_cur else " "
+            lines.append(
+                f"  ${r['spend']:>6.2f}{marker}  "
+                f"${r['total_accrued']:>10,.0f}  "
+                f"{r['ratio']:>7.2f}  "
+                f"${r['final_bank']:>10,.0f}  "
+                f"{be_str:>10}"
+            )
+
         output.update("\n".join(lines))
 
     def on_input_changed(self, event: Input.Changed) -> None:
