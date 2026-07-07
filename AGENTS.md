@@ -4,7 +4,7 @@
 
 Two Textual TUI applications that model game financial runways over 12 months. Each is a standalone single-file Python app using the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
 
-- **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, and Remove Ads business models with CPI-based UA, ARPPU monetization, and ad revenue.
+- **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, Remove Ads, and Subscription business models with CPI-based UA, ARPPU monetization, ad revenue, and recurring subscriptions.
 - **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social/Messaging, Custom Web) with session-based ad impressions and CDN costs.
 
 ## Running
@@ -28,19 +28,23 @@ No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key pack
 
 Both apps share the same structural pattern. Each is a single file:
 
-**`runway.py`** (~1300 lines):
+**`runway.py`** (~1540 lines):
 
-- **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 3 built-in scenarios on first run.
-- **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, starting capital, auto-scaling UA, and scaling OpEx. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
-- **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections (~25 inputs). Four tabs: "12-Month Runway" (timeline table), "Compare Scenarios" (side-by-side summary metrics), "Spend Analysis" (sensitivity table), and "Target Solver" (goal-seeking).
+- **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 4 built-in scenarios on first run.
+- **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, starting capital, auto-scaling UA, scaling OpEx, subscriber cohort tracking with churn, and billing period options. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
+- **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections (~30 inputs). Four tabs: "12-Month Runway" (timeline table with model-appropriate activity metric), "Compare Scenarios" (side-by-side summary metrics), "Spend Analysis" (sensitivity table), and "Target Solver" (goal-seeking with LTV breakdown). KPI bar includes a health diagnosis line that flags per-install profitability issues.
 
-**`web_runway.py`** (~1300 lines):
+**`web_runway.py`** (~1400 lines):
 
 - **`ScenarioStore`** — JSON-backed (`web_scenarios.json`) CRUD. Auto-seeds 4 built-in scenarios.
-- **`WebGameEngine`** — Simulation engine for RPM-based web game economics. Models organic/paid plays, session-based ad impressions, fill rate, portal rev-shares, IAP, CDN costs, and viral spread.
-- **`WebGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Portal Comparison" (same params across all four portals), and "Target Solver".
+- **`WebGameEngine`** — Simulation engine for RPM-based web game economics. Models organic/paid plays, session-based ad impressions, fill rate, portal rev-shares, IAP, CDN costs, and viral spread. Includes LTV breakdown logic.
+- **`WebGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Portal Comparison" (same params across all four portals), and "Target Solver" (with LTV breakdown). KPI bar includes a health diagnosis line that uses daily cash-flow sustainability for organic-only scenarios and LTV-vs-CPI for paid UA.
 
 `EXPOSED_PARAMS` in each file is the single source of truth linking engine attributes ↔ widget IDs ↔ type cast functions. Both `action_recalculate()` and `_load_scenario()` iterate over it generically — no per-field boilerplate.
+
+**`api.py`** (~850 lines):
+
+- **`MobileGameAPI`** and **`WebGameAPI`** — Agent-friendly programmatic wrappers around the engines. No TUI or Textual dependency required. Provides `evaluate()` (full simulation + structured results), `sensitivity()` (parameter sweeps), `solve()` (goal-seeking), `list_models()`, `parameter_schema()`, and `default_scenario()`. See **`AGENT_API.md`** for agent-facing documentation.
 
 ## Key Patterns
 
@@ -51,7 +55,9 @@ Both apps share the same structural pattern. Each is a single file:
 - **Monthly aggregation:** Days 91–365 are grouped by calendar month. Summed for revenue/costs, last-day snapshot for DAU and bank balance. Labeled `YYYY-MM (month)`.
 - **CPI saturation:** `effective_cpi = base_cpi * (1 + saturation * ln(1 + cumulative_paid / 10000))`. Scales logarithmically — fast rise early, plateau later.
 - **Recursive virality:** `viral_installs = first_wave / (1 - k_factor)` (geometric series). Clamped to `first_wave * 10` if k ≥ 1.0.
-- **Rich markup:** Table cells use inline Rich markup for conditional coloring. The space before `[/]` on negative cash flow is intentional (reverse-video trigger).
+- **Subscriber cohort tracking (subscription model):** Each day, `new_subscribers = installs × conversion`. Subscribers decay at `daily_churn = 1 − (1 − monthly_churn/100)^(1/30)`. Revenue = `active_subs × daily_rate × (1 − platform_fee)`.
+- **Model-appropriate activity metrics:** The timeline table, KPI bar, compare table, and sensitivity table show different activity metrics depending on model type: DAU (F2P, Remove Ads), installs (Premium), or active subscribers (Subscription). Column headers relabel dynamically via `_update_activity_labels()`.
+- **Rich markup:** Table cells use inline Rich markup for conditional coloring. The space before `[/]` on negative cash flow is intentional (reverse-video trigger). All closing tags must have their `]` — a missing `]` in `[/` causes a `MarkupError` that only surfaces at runtime when the widget renders.
 
 ## Gotchas
 

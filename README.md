@@ -37,6 +37,28 @@ Includes a **portal comparison** tab that runs the same parameters across all fo
 
 Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installed.
 
+## Programmatic API
+
+Both engines can be used without the TUI via `api.py`. This is useful for AI agents, batch analysis, and automated modeling:
+
+```python
+from api import MobileGameAPI
+
+# Discover available models and parameters
+MobileGameAPI.list_models()
+MobileGameAPI.parameter_schema("subscription")
+
+# Run a simulation
+api = MobileGameAPI({"model_type": "subscription", "subscription_price": 2.99})
+result = api.evaluate()  # → summary, diagnosis, breakdown, timeline
+print(result["diagnosis"]["message"])
+
+# Goal-seeking: find the breakeven CPI
+api.solve("cpi", "final_bank", 0.0, low=0.01, high=5.0)
+```
+
+See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patterns.
+
 ## Parameters
 
 ### Mobile Game (`runway.py`)
