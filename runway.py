@@ -47,8 +47,10 @@ EXPOSED_PARAMS = [
     ("payer_pct", "in_payer_pct", float),
     ("payer_pct", "in_sub_conversion", float),
     ("arppu", "in_arppu", float),
-    ("video_ecpm", "in_video_ecpm", float),
-    ("video_impressions", "in_video_impressions", float),
+    ("interstitial_ecpm", "in_interstitial_ecpm", float),
+    ("interstitial_impressions", "in_interstitial_impressions", float),
+    ("rewarded_ecpm", "in_rewarded_ecpm", float),
+    ("rewarded_views", "in_rewarded_views", float),
     ("platform_fee", "in_platform_fee", float),
     ("payout_delay_days", "in_delay", int),
     ("fixed_overhead_daily", "in_fixed_ops", float),
@@ -73,7 +75,8 @@ DEFAULT_SCENARIOS = {
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
         "payer_pct": 3.0, "arppu": 0.75,
-        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 30.0,
+        "interstitial_ecpm": 8.00, "interstitial_impressions": 5.0,
+        "rewarded_ecpm": 15.00, "rewarded_views": 0.5, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
@@ -88,7 +91,8 @@ DEFAULT_SCENARIOS = {
         "influencer_installs": 10.0,
         "organic_ratio": 0.12, "virality_k_factor": 0.04,
         "payer_pct": 3.0, "arppu": 0.75,
-        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 30.0,
+        "interstitial_ecpm": 0.0, "interstitial_impressions": 0.0,
+        "rewarded_ecpm": 0.0, "rewarded_views": 0.0, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 45.0, "decay_exponent": 0.50,
@@ -103,7 +107,8 @@ DEFAULT_SCENARIOS = {
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.05,
         "payer_pct": 3.0, "arppu": 0.75,
-        "video_ecpm": 80.00, "video_impressions": 0.33, "platform_fee": 30.0,
+        "interstitial_ecpm": 8.00, "interstitial_impressions": 5.0,
+        "rewarded_ecpm": 15.00, "rewarded_views": 0.5, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
@@ -118,7 +123,8 @@ DEFAULT_SCENARIOS = {
         "influencer_installs": 0.0,
         "organic_ratio": 0.10, "virality_k_factor": 0.06,
         "payer_pct": 2.0, "arppu": 0.75,
-        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 30.0,
+        "interstitial_ecpm": 0.0, "interstitial_impressions": 0.0,
+        "rewarded_ecpm": 0.0, "rewarded_views": 0.0, "platform_fee": 30.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 45.0, "decay_exponent": 0.50,
@@ -179,8 +185,10 @@ class RevenueLagEngine:
         self.payer_pct = 3.0
         self.arppu = 0.75
         self.platform_fee = 30.0
-        self.video_ecpm = 80.00
-        self.video_impressions = 0.33
+        self.interstitial_ecpm = 8.00
+        self.interstitial_impressions = 5.0
+        self.rewarded_ecpm = 15.00
+        self.rewarded_views = 0.5
 
         self.fixed_overhead_daily = 10.00
         self.server_cost_per_k_dau = 0.12
@@ -238,7 +246,7 @@ class RevenueLagEngine:
     def calculate_ltv(self) -> float:
         lifetime = self.calculate_lifetime()
         daily_payer_spend = self.calculate_daily_payer_arppu()
-        ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+        ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
 
         if self.model_type == MODEL_PREMIUM:
             return self.game_price * (1.0 - self.platform_fee / 100.0)
@@ -293,7 +301,7 @@ class RevenueLagEngine:
             lines.append(f"  Game price:           ${self.game_price:.2f}")
             lines.append(f"  Platform fee:         {self.platform_fee:.0f}%")
         elif self.model_type == MODEL_REMOVE_ADS:
-            ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+            ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
             removal_ltv = (self.ad_removal_pct / 100.0) * self.ad_removal_price * (1.0 - self.platform_fee / 100.0)
             ad_ltv = (1.0 - self.ad_removal_pct / 100.0) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
             lines.append(f"  Removal IAP:          ${removal_ltv:.2f} ({self.ad_removal_pct:.0f}% × ${self.ad_removal_price:.2f}, net)")
@@ -309,7 +317,7 @@ class RevenueLagEngine:
             lines.append(f"  Effective per install: ${ltv_per_sub * (self.payer_pct / 100.0):.2f}")
         else:
             daily_payer_spend = self.calculate_daily_payer_arppu()
-            ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+            ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
             iap_component = (self.payer_pct / 100.0) * daily_payer_spend * (1.0 - self.platform_fee / 100.0) * lifetime
             ad_component = ad_arpu_per_dau * (1.0 - self.ad_mediation_tax) * lifetime
             lines.append(f"  Player lifetime:      {lifetime:.0f} days ({self.day_1_retention:.0f}% D1, {self.decay_exponent:.2f} decay)")
@@ -351,7 +359,7 @@ class RevenueLagEngine:
         start_date = datetime.date.fromisoformat(self.start_date)
 
         daily_payer_spend = self.calculate_daily_payer_arppu()
-        ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+        ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
         current_spend = self.daily_ua_spend
 
         active_subscribers = 0.0
@@ -866,8 +874,10 @@ class BusinessModelTUI(App):
                     )
                     yield from self.section(
                         "Ad Revenue",
-                        self.labeled_input("Video eCPM ($):", "in_video_ecpm", self.engine.video_ecpm),
-                        self.labeled_input("Impressions/DAU/Day:", "in_video_impressions", self.engine.video_impressions),
+                        self.labeled_input("Interstitial eCPM ($):", "in_interstitial_ecpm", self.engine.interstitial_ecpm),
+                        self.labeled_input("Interstitial Impressions/DAU/Day:", "in_interstitial_impressions", self.engine.interstitial_impressions),
+                        self.labeled_input("Rewarded eCPM ($):", "in_rewarded_ecpm", self.engine.rewarded_ecpm),
+                        self.labeled_input("Rewarded Views/DAU/Day:", "in_rewarded_views", self.engine.rewarded_views),
                         section_id="sec_ads",
                     )
                     yield from self.section(
@@ -951,8 +961,10 @@ class BusinessModelTUI(App):
                 'in_decay': 'Retention Decay',
                 'in_payer_pct': 'Payer Conversion',
                 'in_arppu': 'ARPPU',
-                'in_video_ecpm': 'Video eCPM',
-                'in_video_impressions': 'Impressions/DAU/Day',
+                'in_interstitial_ecpm': 'Interstitial eCPM',
+                'in_interstitial_impressions': 'Interstitial Impressions/DAU/Day',
+                'in_rewarded_ecpm': 'Rewarded eCPM',
+                'in_rewarded_views': 'Rewarded Views/DAU/Day',
                 'in_game_price': 'Game Price',
                 'in_ad_removal_price': 'Removal Price',
                 'in_ad_removal_pct': 'Removal Conversion',

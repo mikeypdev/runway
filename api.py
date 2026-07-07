@@ -195,17 +195,31 @@ MOBILE_PARAMETERS = [
         "models": ["f2p"],
     },
 
-    # --- Ad revenue ---
+    # --- Interstitial ads ---
     {
-        "name": "video_ecpm", "label": "Video eCPM ($)", "type": "float",
-        "default": 80.0, "min": 0.0,
-        "description": "Effective cost per mille (revenue per 1000 ad impressions) for rewarded video.",
+        "name": "interstitial_ecpm", "label": "Interstitial eCPM ($)", "type": "float",
+        "default": 8.0, "min": 0.0,
+        "description": "Effective cost per mille (revenue per 1000 impressions) for interstitial ads.",
         "models": ["f2p", "remove_ads"],
     },
     {
-        "name": "video_impressions", "label": "Impressions/DAU/Day", "type": "float",
-        "default": 0.33, "min": 0.0,
-        "description": "Average rewarded video ad impressions per daily active user per day.",
+        "name": "interstitial_impressions", "label": "Interstitial Impressions/DAU/Day", "type": "float",
+        "default": 5.0, "min": 0.0,
+        "description": "Average interstitial ad impressions per daily active user per day.",
+        "models": ["f2p", "remove_ads"],
+    },
+
+    # --- Rewarded video ---
+    {
+        "name": "rewarded_ecpm", "label": "Rewarded eCPM ($)", "type": "float",
+        "default": 15.0, "min": 0.0,
+        "description": "Effective cost per mille (revenue per 1000 views) for rewarded video ads.",
+        "models": ["f2p", "remove_ads"],
+    },
+    {
+        "name": "rewarded_views", "label": "Rewarded Views/DAU/Day", "type": "float",
+        "default": 0.5, "min": 0.0,
+        "description": "Average rewarded video views per daily active user per day.",
         "models": ["f2p", "remove_ads"],
     },
 
@@ -390,7 +404,7 @@ class MobileGameAPI:
             components["game_price_net"] = round(ltv, 4)
             description = f"Net price after {self.engine.platform_fee:.0f}% platform fee"
         elif model == "remove_ads":
-            ad_arpu = (self.engine.video_ecpm * self.engine.video_impressions) / 1000.0
+            ad_arpu = (self.engine.interstitial_ecpm * self.engine.interstitial_impressions + self.engine.rewarded_ecpm * self.engine.rewarded_views) / 1000.0
             removal = (self.engine.ad_removal_pct / 100.0) * self.engine.ad_removal_price * (1.0 - self.engine.platform_fee / 100.0)
             ad = (1.0 - self.engine.ad_removal_pct / 100.0) * ad_arpu * lifetime * (1.0 - self.engine.ad_mediation_tax)
             components["removal_iap"] = round(removal, 4)
@@ -407,7 +421,7 @@ class MobileGameAPI:
             description = f"{lifetime_months:.1f} month avg lifetime, {self.engine.payer_pct:.1f}% conversion"
         else:
             daily_payer = self.engine.calculate_daily_payer_arppu()
-            ad_arpu = (self.engine.video_ecpm * self.engine.video_impressions) / 1000.0
+            ad_arpu = (self.engine.interstitial_ecpm * self.engine.interstitial_impressions + self.engine.rewarded_ecpm * self.engine.rewarded_views) / 1000.0
             iap = (self.engine.payer_pct / 100.0) * daily_payer * (1.0 - self.engine.platform_fee / 100.0) * lifetime
             ads = ad_arpu * (1.0 - self.engine.ad_mediation_tax) * lifetime
             components["iap_revenue"] = round(iap, 4)
