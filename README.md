@@ -26,7 +26,7 @@ Models web games published on portals with RPM-based (revenue per 1000 plays) mo
 - **Social/Messaging** — higher engagement with IAP support (70%, $1.50 RPM)
 - **Custom Web** — self-published, no rev share, IAP + ads ($1 RPM)
 
-Includes a **portal comparison** tab that runs the same parameters across all four portals side-by-side, and a **target solver** that finds RPM, retention, or session values needed to hit goals.
+Includes a **portal comparison** tab that runs the same parameters across all four portals side-by-side, a **health diagnosis** line flagging per-install profitability at a glance, and a **target solver** that finds RPM, retention, or session values needed to hit goals with a model-specific **LTV breakdown** showing how each revenue component contributes.
 
 ## Quick start
 
@@ -127,7 +127,7 @@ Both apps share the same bindings:
 - **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries
 - **Compare Scenarios** — Side-by-side summary metrics for saved scenarios
 - **Portal Comparison** — Same parameters run across all four portal types
-- **Target Solver** — Find RPM, D1 retention, or sessions/day needed to meet goals
+- **Target Solver** — Find RPM, D1 retention, or sessions/day needed to meet goals, with a model-specific LTV breakdown showing how each revenue component contributes to per-install margin
 
 ## Scenarios
 

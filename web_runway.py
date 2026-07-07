@@ -277,6 +277,43 @@ class WebGameEngine:
         effective_cpi = max(self._compute_blended_cpi(), 0.01)
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
+    def ltv_breakdown_lines(self) -> list[str]:
+        """LTV decomposition as Rich markup lines for display."""
+        blended_cpi = self._compute_blended_cpi()
+        ltv = self.calculate_ltv()
+        lifetime = self.calculate_lifetime()
+        net_rpm_per_impression = (self.base_rpm / 1000.0) * (1.0 - self.portal_rev_share / 100.0) * (self.ad_fill_rate / 100.0)
+        ad_ltv = lifetime * self.sessions_per_day * self.impressions_per_session * net_rpm_per_impression
+
+        lines: list[str] = []
+        lines.append(f"  Player lifetime:      {lifetime:.0f} days ({self.day_1_retention:.0f}% D1, {self.decay_exponent:.2f} decay)")
+        lines.append(f"  Sessions/impressions: {self.sessions_per_day:.1f} sessions/day × {self.impressions_per_session:.1f} × {self.ad_fill_rate:.0f}% fill")
+        lines.append(f"  Net RPM/impression:   ${net_rpm_per_impression:.5f} (${self.base_rpm:.2f} RPM, {self.portal_rev_share:.0f}% portal)")
+        lines.append(f"  Ad revenue per install: ${ad_ltv:.2f}")
+
+        if self._is_iap_supported() and self.iap_payer_pct > 0:
+            iap_ltv = (self.iap_payer_pct / 100.0) * self.iap_avg_purchase * (1.0 - self.portal_rev_share / 100.0)
+            lines.append(f"  IAP per install:      ${iap_ltv:.2f} ({self.iap_payer_pct:.1f}% × ${self.iap_avg_purchase:.2f})")
+
+        if self.external_ua_spend > 0:
+            lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${blended_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - blended_cpi:+.2f}/install[/]")
+        else:
+            timeline = self.calculate_timeline()
+            daily_rows = timeline[:30]
+            avg_dau = sum(d["dau"] for d in daily_rows) / len(daily_rows)
+            avg_plays = sum(d["plays"] for d in daily_rows) / len(daily_rows)
+            avg_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)
+            avg_cdn = avg_plays / 1000.0 * self.cdn_cost_per_k_plays
+            avg_server = avg_dau / 1000.0 * self.server_cost_per_k_dau
+            total_daily_cost = self.fixed_overhead_daily + avg_cdn + avg_server
+            lines.append(f"  Avg DAU (month 1):    {avg_dau:,.0f}")
+            lines.append(f"  Daily ad revenue:     ${avg_rev:.2f}")
+            lines.append(f"  CDN cost:             ${avg_cdn:.2f}/day ({avg_plays:,.0f} plays)")
+            lines.append(f"  Server cost:          ${avg_server:.2f}/day")
+            lines.append(f"  Fixed overhead:       ${self.fixed_overhead_daily:.2f}/day")
+            lines.append(f"  [bold]Daily margin: ${avg_rev - total_daily_cost:+.2f}/day (rev ${avg_rev:.0f} − costs ${total_daily_cost:.0f})[/]")
+        return lines
+
     def _compute_day_revenue(self, dau: float, plays: float, current_rpm: float, new_users: float = 0.0) -> float:
         total_impressions = plays * self.impressions_per_session * (self.ad_fill_rate / 100.0)
         gross_rpm = (total_impressions / 1000.0) * current_rpm
@@ -596,6 +633,13 @@ class WebGameTUI(App):
         background: $surface;
         width: 1fr;
     }
+    #kpi_diagnosis {
+        height: auto;
+        margin-bottom: 0;
+        padding: 0 1;
+        background: $surface-darken-1;
+        width: 1fr;
+    }
     .solver-status {
         color: $text-muted;
         text-style: italic;
@@ -786,6 +830,7 @@ class WebGameTUI(App):
             with Vertical(id="main-content"):
                 yield Static("[dim]Focus: --[/]", id="focus_indicator")
                 yield Static(id="kpi_summary")
+                yield Static("", id="kpi_diagnosis")
                 with TabbedContent():
                     with TabPane("12-Month Runway", id="tab_timeline"):
                         yield DataTable(id="timeline_table")
@@ -1003,6 +1048,44 @@ class WebGameTUI(App):
             f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
+        ratio = self.engine.calculate_ltv_cpi_ratio()
+        blended_cpi = self.engine._compute_blended_cpi()
+        margin = ltv - blended_cpi
+        if self.engine.external_ua_spend > 0:
+            if ratio < 1.0:
+                diagnosis = (
+                    f" [bold red]⚠ Losing ${-margin:.2f}/install "
+                    f"— effective ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}[/]"
+                )
+            elif ratio < 3.0:
+                diagnosis = (
+                    f" [yellow]Profitable but thin — ${margin:.2f}/install "
+                    f"margin over CPI ${blended_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+                )
+            else:
+                diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
+        else:
+            daily_rows = timeline_data[:30]
+            avg_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)
+            avg_cost = sum(d["ops_cost"] for d in daily_rows) / len(daily_rows)
+            daily_margin = avg_rev - avg_cost
+            if daily_margin < 0:
+                diagnosis = (
+                    f" [bold red]⚠ Daily burn: ${avg_cost:.0f}/day "
+                    f"— revenue ${avg_rev:.0f}/day can't cover costs[/]"
+                )
+            elif daily_margin < avg_cost * 0.3:
+                diagnosis = (
+                    f" [yellow]Thin — revenue ${avg_rev:.0f}/day vs costs ${avg_cost:.0f}/day "
+                    f"(${daily_margin:+.0f}/day)[/]"
+                )
+            else:
+                diagnosis = (
+                    f" [green]✓ Revenue ${avg_rev:.0f}/day covers costs ${avg_cost:.0f}/day "
+                    f"(margin: ${daily_margin:+.0f}/day)[/]"
+                )
+        self.query_one("#kpi_diagnosis", Static).update(diagnosis)
+
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
 
@@ -1200,11 +1283,17 @@ class WebGameTUI(App):
                 return "[dim yellow]already met ✓[/]" if current_val >= target else "[dim red]unachievable[/]"
             return f"[bold green]{val:.2f}[/]"
 
+        breakdown = self.engine.ltv_breakdown_lines()
+
         if self._solver_goal == "breakeven":
             lines = [
                 "",
                 "[bold cyan]Goal: Year-End Breakeven (bank >= $0 at 12 months)[/]",
                 "",
+                "[bold]LTV Breakdown[/]",
+                *breakdown,
+                "",
+                "[bold]Parameter Targets[/]",
                 f"  RPM must be >= {fmt_target_rpm(rpm_be, current_bank, 0.0)}      (current: ${self.engine.base_rpm:.2f})",
                 f"  D1 Retention must be >= {fmt_target_pct(d1_be, current_bank, 0.0)}  (current: {self.engine.day_1_retention:.1f}%)",
                 f"  Sessions/Day must be >= {fmt_target_num(sess_be, current_bank, 0.0)}  (current: {self.engine.sessions_per_day:.2f})",
@@ -1221,6 +1310,10 @@ class WebGameTUI(App):
                 "",
                 "[bold cyan]Goal: LTV:CPI >= 3.0[/]",
                 "",
+                "[bold]LTV Breakdown[/]",
+                *breakdown,
+                "",
+                "[bold]Parameter Targets[/]",
                 f"  RPM must be >= {fmt_target_rpm(rpm_ltv, current_ratio, 3.0)}      (current: ${self.engine.base_rpm:.2f})",
                 f"  D1 Retention must be >= {fmt_target_pct(d1_ltv, current_ratio, 3.0)}  (current: {self.engine.day_1_retention:.1f}%)",
                 f"  Sessions/Day must be >= {fmt_target_num(sess_ltv, current_ratio, 3.0)}  (current: {self.engine.sessions_per_day:.2f})",
