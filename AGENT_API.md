@@ -46,8 +46,13 @@ MobileGameAPI.list_default_scenarios()                # → all built-in scenari
 api = MobileGameAPI({"model_type": "subscription", "subscription_price": 2.99})
 result = api.evaluate()   # → full results (see below)
 
-# Parameter sweep
+### Parameter sweep
+
+```python
 api.sensitivity("daily_ua_spend", [5, 10, 20, 50])   # → list of summaries
+```
+
+If `values` is omitted, the API uses default multipliers on the current value: `[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]` for mobile and `[0.25, 0.5, 1.0, 1.5, 2.0, 3.0]` for web. Each sweep temporarily forces `ua_scaling_mode = "manual"` (mobile) so results reflect the swept value directly.
 
 # Goal-seeking (find what value achieves a target)
 api.solve("cpi", "final_bank", 0.0, low=0.01, high=5.0)           # CPI for breakeven
@@ -56,28 +61,30 @@ api.solve("subscription_price", "ltv_cpi_ratio", 3.0, low=0.5, high=50)  # price
 
 ### Evaluate Result Structure
 
+Numeric values below are **illustrative** — they shift as engine defaults evolve. Read them at runtime (`result["summary"][...]`) rather than hardcoding.
+
 ```python
 {
     "summary": {
         "model_type": "f2p",
-        "ltv": 0.8572,            # Lifetime value per install
-        "blended_cpi": 0.3019,    # Install-weighted avg CPI (with saturation)
-        "ltv_cpi_ratio": 2.84,    # LTV / blended CPI
+        "ltv": 0.86,              # Lifetime value per install
+        "blended_cpi": 0.30,      # Install-weighted avg CPI (with saturation)
+        "ltv_cpi_ratio": 2.9,     # LTV / blended CPI
         "margin_per_install": 0.56,  # LTV - CPI
-        "peak_dau": 797,          # or "total_installs" for premium, "peak_subs" for subscription
-        "total_revenue": 5200.50, # 365-day accrued revenue
-        "final_bank": -81.23,     # Year-end bank balance
+        "peak_dau": 797,          # "total_installs" for premium, "peak_subs" for subscription
+        "total_revenue": 7200.0,  # 365-day accrued revenue
+        "final_bank": -81.0,      # Year-end bank balance
         "break_even_day": None,   # Day bank balance first ≥ starting capital (None = never)
     },
     "diagnosis": {
         "status": "thin",         # "healthy" | "thin" | "losing"
-        "message": "Profitable but thin — $0.56/install margin (LTV 2.8× CPI)",
+        "message": "Profitable but thin — $0.56/install margin (LTV 2.9× CPI)",
     },
     "breakdown": {
         "description": "Lifetime 21 days, 3% payers",
-        "components": {
-            "iap_revenue": 0.32,   # IAP contribution per install
-            "ad_revenue": 0.53,    # Ad contribution per install
+        "components": {           # keys vary by model (see below)
+            "iap_revenue": 0.32,  # IAP contribution per install
+            "ad_revenue": 0.53,   # Ad contribution per install
         },
         "total_ltv": 0.86,
         "blended_cpi": 0.30,
@@ -86,6 +93,17 @@ api.solve("subscription_price", "ltv_cpi_ratio", 3.0, low=0.5, high=50)  # price
     "timeline": [ ... ],  # 90 daily rows + 9 monthly summaries
 }
 ```
+
+#### Breakdown `components` keys by model
+
+The `breakdown.components` dict uses different keys depending on `model_type`:
+
+| Model | Component keys |
+|---|---|
+| `f2p` | `iap_revenue`, `ad_revenue` |
+| `premium` | `game_price_net` |
+| `remove_ads` | `removal_iap`, `ad_revenue` |
+| `subscription` | `ltv_per_subscriber`, `conversion_rate`, `effective_per_install` |
 
 ## Web Game API (`WebGameAPI`)
 
@@ -115,20 +133,71 @@ web.sensitivity("base_rpm", [0.50, 1.0, 2.0, 3.0])
 - **Paid UA** (external_ua_spend > 0): Uses LTV vs CPI margin, same as mobile.
 - **Organic-only** (external_ua_spend = 0): Uses daily revenue vs daily costs (overhead + server + CDN), since CPI is not applicable.
 
+### Evaluate Result Structure
+
+The web result shape differs from mobile. The `summary` adds `portal`, `total_plays`, `avg_daily_revenue`, and `avg_daily_costs`, and omits mobile's `ltv_cpi_ratio` / `margin_per_install`. The `breakdown` has no `description` and no `margin_per_install`. Numeric values are illustrative.
+
+```python
+{
+    "summary": {
+        "portal": "Web Portal",
+        "ltv": 0.017,             # Lifetime value per play
+        "blended_cpi": None,      # null when organic-only (external_ua_spend = 0)
+        "total_revenue": 31000.0, # 365-day accrued revenue
+        "total_plays": 15500000,  # Cumulative plays
+        "peak_dau": 47000,
+        "final_bank": -48000.0,   # Year-end bank balance
+        "break_even_day": None,
+        "avg_daily_revenue": 18.7,  # First-30-day average
+        "avg_daily_costs": 204.5,   # overhead + server + CDN
+    },
+    "diagnosis": {
+        "status": "losing",       # "healthy" | "thin" | "losing"
+        "message": "Daily burn: $205/day — revenue $19/day can't cover costs",
+    },
+    "breakdown": {
+        "components": {
+            "player_lifetime_days": 6.4,
+            "sessions_per_day": 1.3,
+            "impressions_per_session": 2.5,
+            "ad_fill_rate": 0.8,
+            "net_rpm_per_impression": 0.0008,
+            "ad_revenue_per_install": 0.017,
+            "iap_revenue_per_install": 0.0,  # only when IAP supported + payer% > 0
+        },
+        "total_ltv": 0.017,
+        "blended_cpi": None,      # null when organic-only
+    },
+    "timeline": [ ... ],  # 90 daily rows + 9 monthly summaries
+}
+```
+
+> **Note:** `solve(..., "ltv_cpi_ratio", ...)` is meaningless for organic-only web scenarios where `blended_cpi` is null. Use `final_bank` as the target metric there.
+
 ## Batch Comparison
 
 ```python
-from api import compare_mobile_scenarios
+from api import compare_mobile_scenarios, compare_web_scenarios
 
-scenarios = {
+# Mobile
+mobile = {
     "Cheap CPI": {"model_type": "f2p", "cpi": 0.10, "daily_ua_spend": 20},
     "Standard": {"model_type": "f2p", "cpi": 0.26, "daily_ua_spend": 10},
     "Premium": {"model_type": "f2p", "cpi": 0.50, "daily_ua_spend": 10},
 }
-results = compare_mobile_scenarios(scenarios)
-for r in results:
+for r in compare_mobile_scenarios(mobile):
+    print(f"{r['name']:12s}  bank=${r['final_bank']:>8,.0f}  {r['diagnosis']}")
+
+# Web — same shape, plus a `portal` field and no `ltv_cpi_ratio`
+web = {
+    "Portal": {"portal": "Web Portal"},
+    "Custom": {"portal": "Custom Web", "external_ua_spend": 20},
+}
+for r in compare_web_scenarios(web):
     print(f"{r['name']:12s}  bank=${r['final_bank']:>8,.0f}  {r['diagnosis']}")
 ```
+
+Each result dict has `name`, then a subset of summary fields (`ltv`, `total_revenue`, `final_bank`, `break_even_day`) and a `diagnosis` status string. Mobile results also include `model_type` and `ltv_cpi_ratio`; web results include `portal`.
 
 ## Common Patterns
 
