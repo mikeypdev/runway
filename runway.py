@@ -17,11 +17,21 @@ SCALING_OPTIONS = [
 MODEL_F2P = "f2p"
 MODEL_PREMIUM = "premium"
 MODEL_REMOVE_ADS = "remove_ads"
+MODEL_SUBSCRIPTION = "subscription"
 
 MODEL_OPTIONS = [
     ("F2P (IAP + Ads)", MODEL_F2P),
     ("Premium (Buy Once)", MODEL_PREMIUM),
     ("F2P + Remove Ads IAP", MODEL_REMOVE_ADS),
+    ("Subscription (No Ads)", MODEL_SUBSCRIPTION),
+]
+
+BILLING_MONTHLY = "monthly"
+BILLING_ANNUAL = "annual"
+
+BILLING_OPTIONS = [
+    ("Monthly", BILLING_MONTHLY),
+    ("Annual", BILLING_ANNUAL),
 ]
 
 EXPOSED_PARAMS = [
@@ -35,6 +45,7 @@ EXPOSED_PARAMS = [
     ("organic_ratio", "in_organic", float),
     ("virality_k_factor", "in_kfactor", float),
     ("payer_pct", "in_payer_pct", float),
+    ("payer_pct", "in_sub_conversion", float),
     ("arppu", "in_arppu", float),
     ("video_ecpm", "in_video_ecpm", float),
     ("video_impressions", "in_video_impressions", float),
@@ -47,6 +58,8 @@ EXPOSED_PARAMS = [
     ("game_price", "in_game_price", float),
     ("ad_removal_price", "in_ad_removal_price", float),
     ("ad_removal_pct", "in_ad_removal_pct", float),
+    ("subscription_price", "in_sub_price", float),
+    ("monthly_churn", "in_monthly_churn", float),
     ("start_date", "in_start_date", str),
     ("starting_capital", "in_starting_capital", float),
 ]
@@ -65,6 +78,7 @@ DEFAULT_SCENARIOS = {
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
         "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
+        "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
     },
     "Premium $4.99": {
         "model_type": MODEL_PREMIUM,
@@ -79,6 +93,7 @@ DEFAULT_SCENARIOS = {
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 45.0, "decay_exponent": 0.50,
         "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
+        "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
     },
     "F2P Remove Ads $2.99": {
         "model_type": MODEL_REMOVE_ADS,
@@ -93,6 +108,22 @@ DEFAULT_SCENARIOS = {
         "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
         "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
+        "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
+    },
+    "Subscription $0.99/mo": {
+        "model_type": MODEL_SUBSCRIPTION,
+        "starting_capital": 1000.0,
+        "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
+        "daily_ua_spend": 8.00, "cpi": 0.35, "cpi_saturation": 0.30,
+        "influencer_installs": 0.0,
+        "organic_ratio": 0.10, "virality_k_factor": 0.06,
+        "payer_pct": 2.0, "arppu": 0.75,
+        "video_ecpm": 0.0, "video_impressions": 0.0, "platform_fee": 30.0,
+        "payout_delay_days": 30,
+        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "day_1_retention": 45.0, "decay_exponent": 0.50,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
+        "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
     },
 }
 
@@ -164,6 +195,9 @@ class RevenueLagEngine:
         self.game_price = 4.99
         self.ad_removal_price = 2.99
         self.ad_removal_pct = 5.0
+        self.subscription_price = 0.99
+        self.monthly_churn = 8.0
+        self.billing_period = BILLING_MONTHLY
         self.start_date = datetime.date.today().strftime("%Y-%m-%d")
         self.starting_capital = 1000.0
 
@@ -172,6 +206,8 @@ class RevenueLagEngine:
             self.model_type = params["model_type"]
         if "ua_scaling_mode" in params:
             self.ua_scaling_mode = params["ua_scaling_mode"]
+        if "billing_period" in params:
+            self.billing_period = params["billing_period"]
         start_date_input = datetime.date.today().strftime("%Y-%m-%d")
         for attr, widget_id, cast_fn in EXPOSED_PARAMS:
             if attr in params:
@@ -180,7 +216,7 @@ class RevenueLagEngine:
             self.start_date = start_date_input
 
     def snapshot_params(self) -> dict:
-        result = {"model_type": self.model_type, "ua_scaling_mode": self.ua_scaling_mode}
+        result = {"model_type": self.model_type, "ua_scaling_mode": self.ua_scaling_mode, "billing_period": self.billing_period}
         result.update({attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS})
         return result
 
@@ -212,6 +248,12 @@ class RevenueLagEngine:
             ad_ltv = (1.0 - self.ad_removal_pct / 100.0) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
             return iap_ltv + ad_ltv
 
+        if self.model_type == MODEL_SUBSCRIPTION:
+            lifetime_months = 100.0 / self.monthly_churn if self.monthly_churn > 0 else float("inf")
+            monthly_revenue = self.subscription_price if self.billing_period == BILLING_MONTHLY else self.subscription_price / 12.0
+            ltv_per_sub = monthly_revenue * lifetime_months * (1.0 - self.platform_fee / 100.0)
+            return (self.payer_pct / 100.0) * ltv_per_sub
+
         iap_arpu = (self.payer_pct / 100.0) * daily_payer_spend
         net_iap = iap_arpu * (1.0 - self.platform_fee / 100.0)
         net_ads = ad_arpu_per_dau * (1.0 - self.ad_mediation_tax)
@@ -240,7 +282,7 @@ class RevenueLagEngine:
         effective_cpi = max(self._compute_blended_cpi(), 0.01)
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
-    def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float) -> float:
+    def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float, active_subscribers: float = 0.0) -> float:
         if self.model_type == MODEL_PREMIUM:
             gross_rev = total_new_installs * self.game_price
             return gross_rev * (1.0 - self.platform_fee / 100.0)
@@ -252,6 +294,10 @@ class RevenueLagEngine:
             net_iap = iap_rev * (1.0 - self.platform_fee / 100.0)
             net_ads = gross_ads * (1.0 - self.ad_mediation_tax)
             return net_iap + net_ads
+        elif self.model_type == MODEL_SUBSCRIPTION:
+            billing_days = 30 if self.billing_period == BILLING_MONTHLY else 365
+            daily_rate = self.subscription_price / billing_days
+            return active_subscribers * daily_rate * (1.0 - self.platform_fee / 100.0)
         else:
             gross_iap = dau * (self.payer_pct / 100.0) * daily_payer_spend
             gross_ads = dau * ad_arpu_per_dau
@@ -270,6 +316,9 @@ class RevenueLagEngine:
         daily_payer_spend = self.calculate_daily_payer_arppu()
         ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
         current_spend = self.daily_ua_spend
+
+        active_subscribers = 0.0
+        daily_churn = 1.0 - (1.0 - self.monthly_churn / 100.0) ** (1.0 / 30.0)
 
         for day in range(365):
             current_date = start_date + datetime.timedelta(days=day)
@@ -292,7 +341,10 @@ class RevenueLagEngine:
 
             dau = surviving_historical_users + total_new_installs
 
-            day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend)
+            new_subscribers = total_new_installs * (self.payer_pct / 100.0)
+            active_subscribers = active_subscribers * (1.0 - daily_churn) + new_subscribers
+
+            day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend, active_subscribers)
             accrued_revenue_history[day] = day_accrued_net_revenue
 
             day_settled_cash_inflow = 0.0
@@ -316,6 +368,7 @@ class RevenueLagEngine:
                 "date": current_date,
                 "dau": int(dau),
                 "installs": int(total_new_installs),
+                "active_subs": int(active_subscribers),
                 "accrued_rev": day_accrued_net_revenue,
                 "cash_inflow": day_settled_cash_inflow,
                 "ops_cost": total_ops_outflow,
@@ -359,6 +412,7 @@ class RevenueLagEngine:
                     "date": f"{key} (month)",
                     "dau": rows[-1]["dau"],
                     "installs": sum(r["installs"] for r in rows),
+                    "active_subs": rows[-1]["active_subs"],
                     "accrued_rev": sum(r["accrued_rev"] for r in rows),
                     "cash_inflow": sum(r["cash_inflow"] for r in rows),
                     "ops_cost": sum(r["ops_cost"] for r in rows),
@@ -372,6 +426,7 @@ class RevenueLagEngine:
     def summarize_timeline(timeline: list[dict], starting_capital: float = 0.0) -> dict:
         peak_dau = max(d["dau"] for d in timeline)
         total_installs = sum(d["installs"] for d in timeline)
+        peak_subs = max(d["active_subs"] for d in timeline)
         total_accrued = sum(d["accrued_rev"] for d in timeline)
         final_bank = timeline[-1]["bank_balance"]
         break_even = next(
@@ -380,6 +435,7 @@ class RevenueLagEngine:
         return {
             "peak_dau": peak_dau,
             "total_installs": total_installs,
+            "peak_subs": peak_subs,
             "total_accrued": total_accrued,
             "final_bank": final_bank,
             "break_even_day": break_even,
@@ -443,6 +499,7 @@ class RevenueLagEngine:
                     "spend": spend,
                     "peak_dau": summary["peak_dau"],
                     "total_installs": summary["total_installs"],
+                    "peak_subs": summary["peak_subs"],
                     "total_accrued": summary["total_accrued"],
                     "final_bank": summary["final_bank"],
                     "ltv": ltv,
@@ -693,6 +750,10 @@ class BusinessModelTUI(App):
         yield Label("Scaling Mode:")
         yield Select(SCALING_OPTIONS, value=self.engine.ua_scaling_mode, id="in_scaling_mode")
 
+    def _subscription_inputs(self):
+        yield Label("Billing Period:")
+        yield Select(BILLING_OPTIONS, value=self.engine.billing_period, id="in_billing_period")
+
     def section(self, title: str, *children, collapsed: bool = True, section_id: str | None = None):
         with Collapsible(title=title, collapsed=collapsed, classes="param-section", id=section_id):
             for child in children:
@@ -777,6 +838,14 @@ class BusinessModelTUI(App):
                         section_id="sec_remove_ads",
                     )
                     yield from self.section(
+                        "Subscription Pricing",
+                        self._subscription_inputs(),
+                        self.labeled_input("Subscription Price ($):", "in_sub_price", self.engine.subscription_price),
+                        self.labeled_input("Monthly Churn (%):", "in_monthly_churn", self.engine.monthly_churn),
+                        self.labeled_input("Subscriber Conversion (%):", "in_sub_conversion", self.engine.payer_pct),
+                        section_id="sec_subscription",
+                    )
+                    yield from self.section(
                         "Platform Fees",
                         self.labeled_input("Platform Fee (%):", "in_platform_fee", self.engine.platform_fee),
                         self.labeled_input("Payout Delay (Days):", "in_delay", self.engine.payout_delay_days, type="integer"),
@@ -842,6 +911,9 @@ class BusinessModelTUI(App):
                 'in_game_price': 'Game Price',
                 'in_ad_removal_price': 'Removal Price',
                 'in_ad_removal_pct': 'Removal Conversion',
+                'in_sub_price': 'Subscription Price',
+                'in_monthly_churn': 'Monthly Churn',
+                'in_sub_conversion': 'Subscriber Conversion',
                 'in_platform_fee': 'Platform Fee',
                 'in_delay': 'Payout Delay',
                 'in_fixed_ops': 'Fixed Daily Overhead',
@@ -885,10 +957,16 @@ class BusinessModelTUI(App):
         self._refresh_compare()
 
     def _update_activity_labels(self):
-        """Relabel DAU/Installs columns based on current model type."""
-        is_premium = self.engine.model_type == MODEL_PREMIUM
-        timeline_label = "Installs" if is_premium else "DAU"
-        summary_label = "Total Installs" if is_premium else "Peak DAU"
+        """Relabel DAU/Installs/Subs columns based on current model type."""
+        if self.engine.model_type == MODEL_PREMIUM:
+            timeline_label = "Installs"
+            summary_label = "Total Installs"
+        elif self.engine.model_type == MODEL_SUBSCRIPTION:
+            timeline_label = "Active Subs"
+            summary_label = "Peak Subs"
+        else:
+            timeline_label = "DAU"
+            summary_label = "Peak DAU"
         try:
             self.query_one("#timeline_table", DataTable).columns[
                 self._timeline_activity_col_key
@@ -903,7 +981,7 @@ class BusinessModelTUI(App):
             pass
 
     def _apply_model_visibility(self, model_type: str):
-        show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_remove_ads": False}
+        show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_remove_ads": False, "sec_subscription": False}
 
         if model_type == MODEL_F2P:
             show["sec_iap"] = True
@@ -913,6 +991,8 @@ class BusinessModelTUI(App):
         elif model_type == MODEL_REMOVE_ADS:
             show["sec_ads"] = True
             show["sec_remove_ads"] = True
+        elif model_type == MODEL_SUBSCRIPTION:
+            show["sec_subscription"] = True
 
         for section_id, visible in show.items():
             section = self.query_one(f"#{section_id}", Collapsible)
@@ -935,6 +1015,8 @@ class BusinessModelTUI(App):
             self.query_one("#model_type_select", Select).value = model_type
             scaling_mode = params.get("ua_scaling_mode", "manual")
             self.query_one("#in_scaling_mode", Select).value = scaling_mode
+            billing_period = params.get("billing_period", BILLING_MONTHLY)
+            self.query_one("#in_billing_period", Select).value = billing_period
             self._apply_model_visibility(model_type)
             for attr, widget_id, cast_fn in EXPOSED_PARAMS:
                 self.query_one(f"#{widget_id}", Input).value = str(getattr(self.engine, attr))
@@ -1020,12 +1102,20 @@ class BusinessModelTUI(App):
         ratio_color = "green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red")
         peak_dau = max(d["dau"] for d in timeline_data)
         total_installs = sum(d["installs"] for d in timeline_data)
+        peak_subs = max(d["active_subs"] for d in timeline_data)
         final_bank = timeline_data[-1]["bank_balance"]
         bank_color = "green" if final_bank >= 0 else "bold red"
 
-        is_premium = self.engine.model_type == MODEL_PREMIUM
-        activity_label = "Total Installs" if is_premium else "Peak DAU"
-        activity_val = total_installs if is_premium else peak_dau
+        model = self.engine.model_type
+        if model == MODEL_PREMIUM:
+            activity_label = "Total Installs"
+            activity_val = total_installs
+        elif model == MODEL_SUBSCRIPTION:
+            activity_label = "Peak Subs"
+            activity_val = peak_subs
+        else:
+            activity_label = "Peak DAU"
+            activity_val = peak_dau
 
         self.query_one("#kpi_summary", Static).update(
             f" [dim]LTV[/] [bold white]${ltv:.2f}[/]  ·  "
@@ -1045,9 +1135,15 @@ class BusinessModelTUI(App):
             date_text = Text(day["date"])
             if is_monthly:
                 date_text.stylize("bold cyan")
+            if model == MODEL_PREMIUM:
+                activity_col = f"{day['installs']:,}"
+            elif model == MODEL_SUBSCRIPTION:
+                activity_col = f"{day['active_subs']:,}"
+            else:
+                activity_col = f"{day['dau']:,}"
             table.add_row(
                 date_text,
-                f"{day['installs'] if is_premium else day['dau']:,}",
+                activity_col,
                 f"${day['accrued_rev']:.2f}",
                 f"${day['cash_inflow']:.2f}",
                 f"${day['ops_cost']:.2f}",
@@ -1168,9 +1264,14 @@ class BusinessModelTUI(App):
         bank_text = Text(f"${summary['final_bank']:,.2f}")
         bank_text.stylize("green" if summary["final_bank"] >= 0 else "bold red")
         model_label = {
-            MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
+            MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds", MODEL_SUBSCRIPTION: "Sub",
         }.get(engine.model_type, "F2P")
-        activity = summary["total_installs"] if self.engine.model_type == MODEL_PREMIUM else summary["peak_dau"]
+        if self.engine.model_type == MODEL_PREMIUM:
+            activity = summary["total_installs"]
+        elif self.engine.model_type == MODEL_SUBSCRIPTION:
+            activity = summary["peak_subs"]
+        else:
+            activity = summary["peak_dau"]
         cmp.add_row(
             name,
             model_label,
@@ -1210,6 +1311,15 @@ class BusinessModelTUI(App):
             mon_ltv = self.engine.solve_parameter("ad_removal_pct", self.engine.get_ltv_cpi, 3.0, 0.0, 100.0)
             mon_is_pct = True
             mon_is_currency = False
+        elif self.engine.model_type == MODEL_SUBSCRIPTION:
+            mon_label = "Sub Price"
+            mon_id = "in_sub_price"
+            mon_curr_raw = self.engine.subscription_price
+            mon_curr_disp = f"${mon_curr_raw:.2f}"
+            mon_be = self.engine.solve_parameter("subscription_price", self.engine.get_final_bank, 0.0, 0.49, 100.0)
+            mon_ltv = self.engine.solve_parameter("subscription_price", self.engine.get_ltv_cpi, 3.0, 0.49, 100.0)
+            mon_is_pct = False
+            mon_is_currency = True
         else:
             mon_label = "ARPPU"
             mon_id = "in_arppu"
@@ -1314,7 +1424,12 @@ class BusinessModelTUI(App):
             ratio_text.stylize(ratio_color)
             is_current = abs(r["spend"] - self.engine.daily_ua_spend) < 0.01
             spend_label = f"${r['spend']:.2f}" + (" *" if is_current else "")
-            activity = r["total_installs"] if self.engine.model_type == MODEL_PREMIUM else r["peak_dau"]
+            if self.engine.model_type == MODEL_PREMIUM:
+                activity = r["total_installs"]
+            elif self.engine.model_type == MODEL_SUBSCRIPTION:
+                activity = r["peak_subs"]
+            else:
+                activity = r["peak_dau"]
             table.add_row(
                 spend_label,
                 f"{activity:,}",
@@ -1336,6 +1451,10 @@ class BusinessModelTUI(App):
             self._refresh_solver_tab_if_active()
         elif event.select.id == "in_scaling_mode" and event.value is not None:
             self.engine.ua_scaling_mode = str(event.value)
+            self.action_recalculate()
+            self._refresh_solver_tab_if_active()
+        elif event.select.id == "in_billing_period" and event.value is not None:
+            self.engine.billing_period = str(event.value)
             self.action_recalculate()
             self._refresh_solver_tab_if_active()
         elif event.select.id == "solver_goal_select" and event.value is not None:

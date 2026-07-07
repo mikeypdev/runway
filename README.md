@@ -14,6 +14,7 @@ Models free-to-play and premium mobile game economics. Supports three business m
 - **F2P (IAP + Ads)** — payer conversion × ARPPU + rewarded video ad revenue
 - **Premium (Buy Once)** — one-time purchase per install, no ads; the timeline and metrics show **installs** instead of DAU since active-user engagement doesn't drive revenue
 - **F2P + Remove Ads IAP** — free users generate ad revenue, paying users remove ads via one-time IAP
+- **Subscription (No Ads)** — monthly or annual recurring subscription; the timeline and metrics show **active subscribers** instead of DAU since revenue depends on paying subscribers, not total active users
 
 Multiple named scenarios can be saved and compared side-by-side (peak DAU, total accrued revenue, break-even day, year-end bank balance). Includes a **target solver** that finds the parameter values needed to hit specific financial goals (year-end breakeven, LTV:CPI ≥ 3.0) and a **spend sensitivity analysis** that shows projected outcomes at different daily UA spend levels.
 
@@ -64,6 +65,10 @@ Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installe
 | **Premium Pricing** *(Premium only)* | Game Price | One-time purchase price |
 | **Ad Removal IAP** *(Remove Ads only)* | Ad Removal Price | One-time IAP to disable ads |
 | | Removal Conversion % | Fraction of new installs that buy removal |
+| **Subscription Pricing** *(Subscription only)* | Billing Period | Monthly or Annual billing cycle |
+| | Subscription Price | Recurring charge per billing period |
+| | Monthly Churn (%) | % of active subscribers who cancel each month |
+| | Subscriber Conversion (%) | Fraction of new installs who subscribe |
 | **Platform Fees** | Platform Fee | Store commission (0.30 = standard) |
 | | Platform Payout Delay | Days before accrued revenue settles as cash |
 | **Live-Ops OpEx** | Fixed Daily Overhead | Baseline daily operating cost |
@@ -132,6 +137,7 @@ Default scenarios ship with each model:
 - **F2P Base Case** — Moderate spend, standard metrics
 - **Premium $4.99** — Buy-once model with higher CPI
 - **F2P Remove Ads $2.99** — Hybrid ad + removal IAP
+- **Subscription $0.99/mo** — Low monthly subscription, no ads
 
 **Web (`web_runway.py`):**
 - **Portal Ad-Only** — Web Portal, ad revenue only
@@ -149,6 +155,7 @@ Both engines track each day's new installs as a cohort, apply a power-law retent
 - **F2P:** IAP revenue from payer conversion × ARPPU + ad revenue from eCPM × impressions
 - **Premium:** New installs × game price, no recurring revenue. The timeline table, KPI bar, sensitivity, and compare tables show installs (daily new / total) instead of DAU, since each install is a one-time sale with no recurring monetization.
 - **Remove Ads:** New installs split — removers pay once, rest generate ad revenue daily
+- **Subscription:** Active subscribers × daily rate (price / billing cycle). Subscribers are acquired from new installs at the conversion rate and decay at the daily-equivalent monthly churn. The timeline and metrics show active subscribers (daily active / peak) instead of DAU, since revenue is tied to paying subscribers, not total active users.
 
 Cash inflow lags accrued revenue by the payout delay. Break-even is measured against starting capital (the initial bank balance). CPI increases logarithmically with cumulative paid installs. Viral installs compound recursively via geometric series. When auto-scaling is enabled, daily UA spend is adjusted weekly based on achieved ROI versus the target.
 
