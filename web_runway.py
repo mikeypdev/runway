@@ -82,7 +82,7 @@ DEFAULT_SCENARIOS = {
         "base_rpm": 2.00, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 0.0, "iap_avg_purchase": 0.0,
         "payout_delay_days": 30,
-        "fixed_overhead_daily": 200.0,
+        "fixed_overhead_daily": 10.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
     "Playable Ads Reach": {
@@ -99,7 +99,7 @@ DEFAULT_SCENARIOS = {
         "base_rpm": 1.20, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 0.0, "iap_avg_purchase": 0.0,
         "payout_delay_days": 45,
-        "fixed_overhead_daily": 200.0,
+        "fixed_overhead_daily": 10.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
     "Social IAP Hybrid": {
@@ -116,7 +116,7 @@ DEFAULT_SCENARIOS = {
         "base_rpm": 1.50, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 1.0, "iap_avg_purchase": 1.99,
         "payout_delay_days": 30,
-        "fixed_overhead_daily": 200.0,
+        "fixed_overhead_daily": 10.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
     "Custom Web Direct": {
@@ -133,7 +133,7 @@ DEFAULT_SCENARIOS = {
         "base_rpm": 1.00, "rpm_growth_rate": 0.0,
         "iap_payer_pct": 1.5, "iap_avg_purchase": 2.99,
         "payout_delay_days": 15,
-        "fixed_overhead_daily": 250.0,
+        "fixed_overhead_daily": 20.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
 }
@@ -196,7 +196,7 @@ class WebGameEngine:
         self.iap_payer_pct = 0.0
         self.iap_avg_purchase = 0.0
 
-        self.fixed_overhead_daily = 200.0
+        self.fixed_overhead_daily = 10.0
         self.server_cost_per_k_dau = 0.50
         self.cdn_cost_per_k_plays = 0.10
 
