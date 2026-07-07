@@ -315,6 +315,7 @@ class RevenueLagEngine:
             all_days.append({
                 "date": current_date,
                 "dau": int(dau),
+                "installs": int(total_new_installs),
                 "accrued_rev": day_accrued_net_revenue,
                 "cash_inflow": day_settled_cash_inflow,
                 "ops_cost": total_ops_outflow,
@@ -357,6 +358,7 @@ class RevenueLagEngine:
                 timeline.append({
                     "date": f"{key} (month)",
                     "dau": rows[-1]["dau"],
+                    "installs": sum(r["installs"] for r in rows),
                     "accrued_rev": sum(r["accrued_rev"] for r in rows),
                     "cash_inflow": sum(r["cash_inflow"] for r in rows),
                     "ops_cost": sum(r["ops_cost"] for r in rows),
@@ -369,6 +371,7 @@ class RevenueLagEngine:
     @staticmethod
     def summarize_timeline(timeline: list[dict], starting_capital: float = 0.0) -> dict:
         peak_dau = max(d["dau"] for d in timeline)
+        total_installs = sum(d["installs"] for d in timeline)
         total_accrued = sum(d["accrued_rev"] for d in timeline)
         final_bank = timeline[-1]["bank_balance"]
         break_even = next(
@@ -376,6 +379,7 @@ class RevenueLagEngine:
         )
         return {
             "peak_dau": peak_dau,
+            "total_installs": total_installs,
             "total_accrued": total_accrued,
             "final_bank": final_bank,
             "break_even_day": break_even,
@@ -438,6 +442,7 @@ class RevenueLagEngine:
                 results.append({
                     "spend": spend,
                     "peak_dau": summary["peak_dau"],
+                    "total_installs": summary["total_installs"],
                     "total_accrued": summary["total_accrued"],
                     "final_bank": summary["final_bank"],
                     "ltv": ltv,
@@ -670,6 +675,9 @@ class BusinessModelTUI(App):
         self._focus_original_values: dict[str, str | None] = {}
         self._pending_delete = False
         self._solver_goal = "breakeven"
+        self._timeline_activity_col_key = None
+        self._sens_activity_col_key = None
+        self._compare_activity_col_key = None
 
     def labeled_input(
         self, label_text: str, input_id: str, value, *, type: str | None = "number"
@@ -846,25 +854,28 @@ class BusinessModelTUI(App):
 
     def on_mount(self) -> None:
         table = self.query_one("#timeline_table", DataTable)
-        table.add_columns(
+        col_keys = table.add_columns(
             "Date", "DAU", "Accrued Rev",
             "Cash In", "Expenses",
             "Bank Balance"
         )
+        self._timeline_activity_col_key = col_keys[1]
         table.cursor_type = "row"
 
         cmp = self.query_one("#compare_table", DataTable)
-        cmp.add_columns(
+        cmp_keys = cmp.add_columns(
             "Scenario", "Model", "Peak DAU", "LTV", "LTV:CPI",
             "Break-even", "Year-End Bank"
         )
+        self._compare_activity_col_key = cmp_keys[2]
         cmp.cursor_type = "row"
 
         sens = self.query_one("#sensitivity_table", DataTable)
-        sens.add_columns(
+        sens_keys = sens.add_columns(
             "Daily Spend", "Peak DAU", "Total Revenue",
             "LTV:CPI", "Break-even", "Year-End Bank"
         )
+        self._sens_activity_col_key = sens_keys[1]
         sens.cursor_type = "row"
 
         if self.store.list_names():
@@ -872,6 +883,24 @@ class BusinessModelTUI(App):
 
         self.action_recalculate()
         self._refresh_compare()
+
+    def _update_activity_labels(self):
+        """Relabel DAU/Installs columns based on current model type."""
+        is_premium = self.engine.model_type == MODEL_PREMIUM
+        timeline_label = "Installs" if is_premium else "DAU"
+        summary_label = "Total Installs" if is_premium else "Peak DAU"
+        try:
+            self.query_one("#timeline_table", DataTable).columns[
+                self._timeline_activity_col_key
+            ].label = Text(timeline_label)
+            self.query_one("#sensitivity_table", DataTable).columns[
+                self._sens_activity_col_key
+            ].label = Text(summary_label)
+            self.query_one("#compare_table", DataTable).columns[
+                self._compare_activity_col_key
+            ].label = Text(summary_label)
+        except Exception:
+            pass
 
     def _apply_model_visibility(self, model_type: str):
         show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_remove_ads": False}
@@ -892,6 +921,8 @@ class BusinessModelTUI(App):
             for widget in section.walk_children():
                 if isinstance(widget, Input):
                     widget.disabled = not visible
+
+        self._update_activity_labels()
 
     def _load_scenario(self, name: str):
         params = self.store.get(name)
@@ -988,14 +1019,19 @@ class BusinessModelTUI(App):
         ratio = self.engine.calculate_ltv_cpi_ratio()
         ratio_color = "green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red")
         peak_dau = max(d["dau"] for d in timeline_data)
+        total_installs = sum(d["installs"] for d in timeline_data)
         final_bank = timeline_data[-1]["bank_balance"]
         bank_color = "green" if final_bank >= 0 else "bold red"
+
+        is_premium = self.engine.model_type == MODEL_PREMIUM
+        activity_label = "Total Installs" if is_premium else "Peak DAU"
+        activity_val = total_installs if is_premium else peak_dau
 
         self.query_one("#kpi_summary", Static).update(
             f" [dim]LTV[/] [bold white]${ltv:.2f}[/]  ·  "
             f"[dim]CPI[/] [bold white]${self.engine.cpi:.2f}[/]  ·  "
             f"[dim]LTV:CPI[/] [{ratio_color} bold]{ratio:.2f}[/]  ·  "
-            f"[dim]Peak DAU[/] [bold white]{peak_dau:,}[/]  ·  "
+            f"[dim]{activity_label}[/] [bold white]{activity_val:,}[/]  ·  "
             f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
@@ -1011,7 +1047,7 @@ class BusinessModelTUI(App):
                 date_text.stylize("bold cyan")
             table.add_row(
                 date_text,
-                f"{day['dau']:,}",
+                f"{day['installs'] if is_premium else day['dau']:,}",
                 f"${day['accrued_rev']:.2f}",
                 f"${day['cash_inflow']:.2f}",
                 f"${day['ops_cost']:.2f}",
@@ -1134,10 +1170,11 @@ class BusinessModelTUI(App):
         model_label = {
             MODEL_F2P: "F2P", MODEL_PREMIUM: "Premium", MODEL_REMOVE_ADS: "RemAds",
         }.get(engine.model_type, "F2P")
+        activity = summary["total_installs"] if self.engine.model_type == MODEL_PREMIUM else summary["peak_dau"]
         cmp.add_row(
             name,
             model_label,
-            f"{summary['peak_dau']:,}",
+            f"{activity:,}",
             f"${ltv:.2f}",
             ratio_text,
             be,
@@ -1277,9 +1314,10 @@ class BusinessModelTUI(App):
             ratio_text.stylize(ratio_color)
             is_current = abs(r["spend"] - self.engine.daily_ua_spend) < 0.01
             spend_label = f"${r['spend']:.2f}" + (" *" if is_current else "")
+            activity = r["total_installs"] if self.engine.model_type == MODEL_PREMIUM else r["peak_dau"]
             table.add_row(
                 spend_label,
-                f"{r['peak_dau']:,}",
+                f"{activity:,}",
                 f"${r['total_accrued']:,.0f}",
                 ratio_text,
                 be,

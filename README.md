@@ -12,7 +12,7 @@ Both simulators model 365 days of game economics — user acquisition, retention
 
 Models free-to-play and premium mobile game economics. Supports three business models:
 - **F2P (IAP + Ads)** — payer conversion × ARPPU + rewarded video ad revenue
-- **Premium (Buy Once)** — one-time purchase per install, no ads
+- **Premium (Buy Once)** — one-time purchase per install, no ads; the timeline and metrics show **installs** instead of DAU since active-user engagement doesn't drive revenue
 - **F2P + Remove Ads IAP** — free users generate ad revenue, paying users remove ads via one-time IAP
 
 Multiple named scenarios can be saved and compared side-by-side (peak DAU, total accrued revenue, break-even day, year-end bank balance). Includes a **target solver** that finds the parameter values needed to hit specific financial goals (year-end breakeven, LTV:CPI ≥ 3.0) and a **spend sensitivity analysis** that shows projected outcomes at different daily UA spend levels.
@@ -112,7 +112,7 @@ Both apps share the same bindings:
 
 ### Mobile Game
 
-- **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries
+- **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries (shows installs instead of DAU for the Premium model)
 - **Compare Scenarios** — Side-by-side summary metrics for saved scenarios
 - **Spend Analysis** — Projected outcomes at different daily UA spend levels
 - **Target Solver** — Find parameter values needed to meet financial goals
@@ -147,7 +147,7 @@ Both engines track each day's new installs as a cohort, apply a power-law retent
 
 **Mobile (`runway.py`):**
 - **F2P:** IAP revenue from payer conversion × ARPPU + ad revenue from eCPM × impressions
-- **Premium:** New installs × game price, no recurring revenue
+- **Premium:** New installs × game price, no recurring revenue. The timeline table, KPI bar, sensitivity, and compare tables show installs (daily new / total) instead of DAU, since each install is a one-time sale with no recurring monetization.
 - **Remove Ads:** New installs split — removers pay once, rest generate ad revenue daily
 
 Cash inflow lags accrued revenue by the payout delay. Break-even is measured against starting capital (the initial bank balance). CPI increases logarithmically with cumulative paid installs. Viral installs compound recursively via geometric series. When auto-scaling is enabled, daily UA spend is adjusted weekly based on achieved ROI versus the target.
