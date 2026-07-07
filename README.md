@@ -16,7 +16,7 @@ Models free-to-play and premium mobile game economics. Supports three business m
 - **F2P + Remove Ads IAP** — free users generate ad revenue, paying users remove ads via one-time IAP
 - **Subscription (No Ads)** — monthly or annual recurring subscription; the timeline and metrics show **active subscribers** instead of DAU since revenue depends on paying subscribers, not total active users
 
-Multiple named scenarios can be saved and compared side-by-side (peak DAU, total accrued revenue, break-even day, year-end bank balance). Includes a **target solver** that finds the parameter values needed to hit specific financial goals (year-end breakeven, LTV:CPI ≥ 3.0) and a **spend sensitivity analysis** that shows projected outcomes at different daily UA spend levels.
+Multiple named scenarios can be saved and compared side-by-side (peak DAU, total accrued revenue, break-even day, year-end bank balance). A **health diagnosis** line under the KPI bar flags per-install profitability issues at a glance. Includes a **target solver** that finds the parameter values needed to hit specific financial goals (year-end breakeven, LTV:CPI ≥ 3.0) with a model-specific **LTV breakdown** showing how each revenue component contributes, and a **spend sensitivity analysis** that shows projected outcomes at different daily UA spend levels.
 
 ### Web Game Simulator (`web_runway.py`)
 
@@ -120,7 +120,7 @@ Both apps share the same bindings:
 - **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries (shows installs instead of DAU for the Premium model)
 - **Compare Scenarios** — Side-by-side summary metrics for saved scenarios
 - **Spend Analysis** — Projected outcomes at different daily UA spend levels
-- **Target Solver** — Find parameter values needed to meet financial goals
+- **Target Solver** — Find parameter values needed to meet financial goals, with a model-specific LTV breakdown showing how each revenue component contributes to per-install margin
 
 ### Web Game
 

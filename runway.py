@@ -282,6 +282,43 @@ class RevenueLagEngine:
         effective_cpi = max(self._compute_blended_cpi(), 0.01)
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
+    def ltv_breakdown_lines(self) -> list[str]:
+        """Model-specific LTV decomposition as Rich markup lines for display."""
+        blended_cpi = self._compute_blended_cpi()
+        ltv = self.calculate_ltv()
+        lifetime = self.calculate_lifetime()
+        lines: list[str] = []
+
+        if self.model_type == MODEL_PREMIUM:
+            lines.append(f"  Game price:           ${self.game_price:.2f}")
+            lines.append(f"  Platform fee:         {self.platform_fee:.0f}%")
+        elif self.model_type == MODEL_REMOVE_ADS:
+            ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+            removal_ltv = (self.ad_removal_pct / 100.0) * self.ad_removal_price * (1.0 - self.platform_fee / 100.0)
+            ad_ltv = (1.0 - self.ad_removal_pct / 100.0) * ad_arpu_per_dau * lifetime * (1.0 - self.ad_mediation_tax)
+            lines.append(f"  Removal IAP:          ${removal_ltv:.2f} ({self.ad_removal_pct:.0f}% × ${self.ad_removal_price:.2f}, net)")
+            lines.append(f"  Ad revenue:           ${ad_ltv:.2f} ({100 - self.ad_removal_pct:.0f}% view ads × {lifetime:.0f}d)")
+        elif self.model_type == MODEL_SUBSCRIPTION:
+            lifetime_months = 100.0 / self.monthly_churn if self.monthly_churn > 0 else float("inf")
+            monthly_revenue = self.subscription_price if self.billing_period == BILLING_MONTHLY else self.subscription_price / 12.0
+            net_monthly = monthly_revenue * (1.0 - self.platform_fee / 100.0)
+            ltv_per_sub = net_monthly * lifetime_months
+            lines.append(f"  Subscriber lifetime:  {lifetime_months:.1f} months ({self.monthly_churn:.0f}% churn)")
+            lines.append(f"  Net revenue per sub:  ${ltv_per_sub:.2f} (${net_monthly:.2f}/mo after fees)")
+            lines.append(f"  Conversion:           {self.payer_pct:.1f}% of installs subscribe")
+            lines.append(f"  Effective per install: ${ltv_per_sub * (self.payer_pct / 100.0):.2f}")
+        else:
+            daily_payer_spend = self.calculate_daily_payer_arppu()
+            ad_arpu_per_dau = (self.video_ecpm * self.video_impressions) / 1000.0
+            iap_component = (self.payer_pct / 100.0) * daily_payer_spend * (1.0 - self.platform_fee / 100.0) * lifetime
+            ad_component = ad_arpu_per_dau * (1.0 - self.ad_mediation_tax) * lifetime
+            lines.append(f"  Player lifetime:      {lifetime:.0f} days ({self.day_1_retention:.0f}% D1, {self.decay_exponent:.2f} decay)")
+            lines.append(f"  IAP per install:      ${iap_component:.2f} ({self.payer_pct:.0f}% × ${daily_payer_spend:.2f}/day)")
+            lines.append(f"  Ad revenue per install: ${ad_component:.2f} (${ad_arpu_per_dau:.3f}/DAU/day)")
+
+        lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${blended_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - blended_cpi:+.2f}/install[/]")
+        return lines
+
     def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float, active_subscribers: float = 0.0) -> float:
         if self.model_type == MODEL_PREMIUM:
             gross_rev = total_new_installs * self.game_price
@@ -632,6 +669,13 @@ class BusinessModelTUI(App):
         background: $surface;
         width: 1fr;
     }
+    #kpi_diagnosis {
+        height: auto;
+        margin-bottom: 0;
+        padding: 0 1;
+        background: $surface-darken-1;
+        width: 1fr;
+    }
     .solver-status {
         color: $text-muted;
         text-style: italic;
@@ -859,6 +903,7 @@ class BusinessModelTUI(App):
             with Vertical(id="main-content"):
                 yield Static("[dim]Focus: --[/]", id="focus_indicator")
                 yield Static(id="kpi_summary")
+                yield Static("", id="kpi_diagnosis")
                 with TabbedContent():
                     with TabPane("12-Month Runway", id="tab_timeline"):
                         yield DataTable(id="timeline_table")
@@ -1125,6 +1170,22 @@ class BusinessModelTUI(App):
             f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
+        blended_cpi = self.engine._compute_blended_cpi()
+        margin = ltv - blended_cpi
+        if ratio < 1.0:
+            diagnosis = (
+                f" [bold red]⚠ Losing ${-margin:.2f}/install "
+                f"— effective ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}[/]"
+            )
+        elif ratio < 3.0:
+            diagnosis = (
+                f" [yellow]Profitable but thin — ${margin:.2f}/install "
+                f"margin over CPI ${blended_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+            )
+        else:
+            diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
+        self.query_one("#kpi_diagnosis", Static).update(diagnosis)
+
         table = self.query_one("#timeline_table", DataTable)
         table.clear()
 
@@ -1352,11 +1413,17 @@ class BusinessModelTUI(App):
         mon_be_s = fmt_target(mon_be, mon_is_pct, mon_is_currency, current_bank, 0.0)
         mon_ltv_s = fmt_target(mon_ltv, mon_is_pct, mon_is_currency, current_ratio, 3.0)
 
+        breakdown = self.engine.ltv_breakdown_lines()
+
         if self._solver_goal == "breakeven":
             lines = [
                 "",
                 f"[bold cyan]Goal: Year-End Breakeven (bank ≥ $0 at 12 months)[/]",
                 "",
+                f"[bold]LTV Breakdown[/]",
+                *breakdown,
+                "",
+                f"[bold]Parameter Targets[/]",
                 f"  CPI must be ≤ {cpi_be_s}          (current: ${self.engine.cpi:.2f})",
                 f"  D1 Retention must be ≥ {d1_be_s}  (current: {self.engine.day_1_retention:.1f}%)",
                 f"  {mon_label} must be ≥ {mon_be_s}  (current: {mon_curr_disp})",
@@ -1375,6 +1442,10 @@ class BusinessModelTUI(App):
                 "",
                 f"[bold cyan]Goal: LTV:CPI ≥ 3.0[/]",
                 "",
+                f"[bold]LTV Breakdown[/]",
+                *breakdown,
+                "",
+                f"[bold]Parameter Targets[/]",
                 f"  CPI must be ≤ {cpi_ltv_s}          (current: ${self.engine.cpi:.2f})",
                 f"  D1 Retention must be ≥ {d1_ltv_s}  (current: {self.engine.day_1_retention:.1f}%)",
                 f"  {mon_label} must be ≥ {mon_ltv_s}  (current: {mon_curr_disp})",
