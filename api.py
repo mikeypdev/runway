@@ -504,8 +504,8 @@ WEB_PORTALS = [
      "organic_plays": 3000, "description": "Standard rev-share portal. 50% portal cut, $2 RPM, no IAP support."},
     {"id": "Playable Ads", "rev_share": 60.0, "rpm": 1.20, "iap": False,
      "organic_plays": 6000, "description": "Ad-driven discovery portal. 60% cut, lower $1.20 RPM, higher organic volume."},
-    {"id": "Social/Messaging", "rev_share": 70.0, "rpm": 1.50, "iap": True,
-     "organic_plays": 2000, "description": "Higher engagement with IAP support. 70% cut, $1.50 RPM."},
+    {"id": "Social App Mini Game", "rev_share": 50.0, "rpm": 1.50, "iap": True,
+     "organic_plays": 2000, "description": "Mini games inside social/messaging apps. 50% cut, $1.50 RPM, IAP + ads."},
     {"id": "Custom Web", "rev_share": 0.0, "rpm": 1.00, "iap": True,
      "organic_plays": 0, "description": "Self-published, no rev share, $1 RPM, IAP + ads. Requires paid UA."},
 ]
@@ -514,7 +514,7 @@ WEB_PARAMETERS = [
     # --- Portal ---
     {
         "name": "portal", "label": "Publish Portal", "type": "choice",
-        "default": "Web Portal", "options": ["Web Portal", "Playable Ads", "Social/Messaging", "Custom Web"],
+        "default": "Web Portal", "options": ["Web Portal", "Playable Ads", "Social App Mini Game", "Custom Web"],
         "description": "Distribution portal. Sets default rev-share, RPM, organic plays, and IAP availability.",
         "models": "all",
     },
@@ -625,14 +625,14 @@ WEB_PARAMETERS = [
     {
         "name": "iap_payer_pct", "label": "IAP Payer (%)", "type": "float",
         "default": 0.0, "min": 0.0, "max": 100.0,
-        "description": "Fraction of new players who make an IAP purchase. Only available on Social and Custom portals.",
-        "models": ["Social/Messaging", "Custom Web"],
+        "description": "Fraction of new players who make an IAP purchase. Only available on Social App Mini Game and Custom portals.",
+        "models": ["Social App Mini Game", "Custom Web"],
     },
     {
         "name": "iap_avg_purchase", "label": "IAP Avg Purchase ($)", "type": "float",
         "default": 0.0, "min": 0.0,
         "description": "Average one-time IAP purchase amount.",
-        "models": ["Social/Messaging", "Custom Web"],
+        "models": ["Social App Mini Game", "Custom Web"],
     },
 
     # --- Costs ---

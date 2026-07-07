@@ -113,7 +113,7 @@ The `breakdown.components` dict uses different keys depending on `model_type`:
 |---|---|---|---|---|---|
 | Web Portal | 50% | $2.00 | No | 3000/day | Standard rev-share |
 | Playable Ads | 60% | $1.20 | No | 6000/day | Higher volume, lower RPM |
-| Social/Messaging | 70% | $1.50 | Yes | 2000/day | Higher engagement |
+| Social App Mini Game | 50% | $1.50 | Yes | 2000/day | Mini games in social apps |
 | Custom Web | 0% | $1.00 | Yes | 0/day | Self-published, needs paid UA |
 
 ### Key Methods
@@ -225,7 +225,7 @@ for model in ["f2p", "premium", "remove_ads", "subscription"]:
 
 ### Compare all web portals
 ```python
-for portal in ["Web Portal", "Playable Ads", "Social/Messaging", "Custom Web"]:
+for portal in ["Web Portal", "Playable Ads", "Social App Mini Game", "Custom Web"]:
     api = WebGameAPI(WebGameAPI.default_scenario(portal))
     r = api.evaluate()
     print(f"{portal:16s}  LTV=${r['summary']['ltv']:.2f}  bank=${r['summary']['final_bank']:>8,.0f}  {r['diagnosis']['status']}")

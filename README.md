@@ -23,7 +23,7 @@ Multiple named scenarios can be saved and compared side-by-side (peak DAU, total
 Models web games published on portals with RPM-based (revenue per 1000 plays) monetization. Supports four portal types:
 - **Web Portal** — standard rev-share portal (50%, $2 RPM)
 - **Playable Ads** — ad-driven discovery (60%, $1.20 RPM)
-- **Social/Messaging** — higher engagement with IAP support (70%, $1.50 RPM)
+- **Social App Mini Game** — mini games in social/messaging apps (50%, $1.50 RPM, IAP + ads)
 - **Custom Web** — self-published, no rev share, IAP + ads ($1 RPM)
 
 Includes a **portal comparison** tab that runs the same parameters across all four portals side-by-side, a **health diagnosis** line flagging per-install profitability at a glance, and a **target solver** that finds RPM, retention, or session values needed to hit goals with a model-specific **LTV breakdown** showing how each revenue component contributes.
@@ -102,7 +102,7 @@ See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patt
 |---|---|---|
 | **Launch & Capital** | Start Date | Day 1 of the simulation (defaults to today) |
 | | Starting Capital | Initial bank balance before day 1 |
-| **Portal** | Publish Portal | Web Portal, Playable Ads, Social/Messaging, or Custom Web |
+| **Portal** | Publish Portal | Web Portal, Playable Ads, Social App Mini Game, or Custom Web |
 | **Traffic & Acquisition** | Organic Plays/Day | Free daily plays (portal-dependent) |
 | | Min Guaranteed Plays | Floor on daily plays |
 | | External UA Spend | Daily paid acquisition budget |
@@ -164,7 +164,7 @@ Default scenarios ship with each model:
 **Web (`web_runway.py`):**
 - **Portal Ad-Only** — Web Portal, ad revenue only
 - **Playable Ads Reach** — Playable Ads portal, higher volume
-- **Social IAP Hybrid** — Social/Messaging, ad + IAP revenue
+- **Social Mini Game** — Social App Mini Game, ad + IAP revenue
 - **Custom Web Direct** — Self-published, full IAP control
 
 Scenarios are saved to `scenarios.json` (mobile) or `web_scenarios.json` (web). Delete the file to reset to defaults.

@@ -5,7 +5,7 @@
 Two Textual TUI applications that model game financial runways over 12 months. Each is a standalone single-file Python app using the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
 
 - **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, Remove Ads, and Subscription business models with CPI-based UA, ARPPU monetization, ad revenue, and recurring subscriptions.
-- **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social/Messaging, Custom Web) with session-based ad impressions and CDN costs.
+- **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social App Mini Game, Custom Web) with session-based ad impressions and CDN costs.
 
 ## Running
 

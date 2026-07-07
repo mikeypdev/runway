@@ -2,7 +2,7 @@
 """Web Games 12-Month Financial Runway Simulator.
 
 Models a web game published on portals (Web Portal, Playable Ads,
-Social/Messaging, Custom Web). Revenue is RPM-based (revenue per 1000
+Social App Mini Game, Custom Web). Revenue is RPM-based (revenue per 1000
 plays) with portal revenue shares.
 """
 
@@ -30,8 +30,8 @@ PORTALS = {
         "rev_share": 60.0, "rpm": 1.20, "iap": False,
         "organic_plays": 6000, "min_plays": 0,
     },
-    "Social/Messaging": {
-        "rev_share": 70.0, "rpm": 1.50, "iap": True,
+    "Social App Mini Game": {
+        "rev_share": 50.0, "rpm": 1.50, "iap": True,
         "organic_plays": 2000, "min_plays": 0,
     },
     "Custom Web": {
@@ -102,19 +102,19 @@ DEFAULT_SCENARIOS = {
         "fixed_overhead_daily": 10.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
     },
-    "Social IAP Hybrid": {
-        "portal": "Social/Messaging",
+    "Social Mini Game": {
+        "portal": "Social App Mini Game",
         "starting_capital": 5000.0,
-        "portal_rev_share": 70.0,
+        "portal_rev_share": 50.0,
         "organic_plays_per_day": 2000, "min_plays_per_day": 0,
         "external_ua_spend": 5.0, "external_cpi": 0.40, "cpi_saturation": 0.3,
-        "viral_k": 0.03,
+        "viral_k": 0.15,
         "day_1_retention": 20.0, "decay_exponent": 0.50,
         "sessions_per_day": 1.5,
         "impressions_per_session": 2.5,
         "ad_fill_rate": 80.0,
         "base_rpm": 1.50, "rpm_growth_rate": 0.0,
-        "iap_payer_pct": 1.0, "iap_avg_purchase": 1.99,
+        "iap_payer_pct": 1.0, "iap_avg_purchase": 0.79,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 10.0,
         "server_cost_per_k_dau": 0.50, "cdn_cost_per_k_plays": 0.10,
@@ -272,10 +272,44 @@ class WebGameEngine:
             return max(self.external_cpi, 0.01)
         return total_cost / total_installs
 
+    def _compute_all_user_cpi(self, days: int = 365) -> float:
+        """Blended cost per install across ALL users (organic + viral + paid).
+        Returns the effective cost per install when accounting for free users."""
+        if self.external_ua_spend <= 0:
+            return 0.0
+        cumulative_paid = 0.0
+        total_cost = 0.0
+        total_all_installs = 0.0
+        for _ in range(days):
+            effective_cpi = self.external_cpi
+            if self.cpi_saturation > 0:
+                saturation_factor = 1.0 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000)
+                effective_cpi = self.external_cpi * saturation_factor
+            paid_installs = self.external_ua_spend / effective_cpi
+            organic = self.organic_plays_per_day
+            base_new = organic + paid_installs
+            viral = base_new * self.viral_k / (1 - self.viral_k) if self.viral_k < 1.0 else base_new * 10
+            all_installs = base_new + viral
+            total_cost += self.external_ua_spend
+            total_all_installs += all_installs
+            cumulative_paid += paid_installs
+        if total_all_installs <= 0:
+            return 0.0
+        return total_cost / total_all_installs
+
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
-        effective_cpi = max(self._compute_blended_cpi(), 0.01)
+        effective_cpi = self._compute_effective_cpi_for_diagnosis()
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
+
+    def _compute_effective_cpi_for_diagnosis(self) -> float:
+        """When organic traffic exists, use blended cost across all users;
+        otherwise fall back to paid-only CPI."""
+        if self.organic_plays_per_day > 0 and self.external_ua_spend > 0:
+            all_user_cpi = self._compute_all_user_cpi()
+            if all_user_cpi > 0:
+                return all_user_cpi
+        return max(self._compute_blended_cpi(), 0.01)
 
     def ltv_breakdown_lines(self) -> list[str]:
         """LTV decomposition as Rich markup lines for display."""
@@ -1049,18 +1083,18 @@ class WebGameTUI(App):
         )
 
         ratio = self.engine.calculate_ltv_cpi_ratio()
-        blended_cpi = self.engine._compute_blended_cpi()
-        margin = ltv - blended_cpi
+        effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
+        margin = ltv - effective_cpi
         if self.engine.external_ua_spend > 0:
             if ratio < 1.0:
                 diagnosis = (
                     f" [bold red]⚠ Losing ${-margin:.2f}/install "
-                    f"— effective ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}[/]"
+                    f"— effective ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
                 )
             elif ratio < 3.0:
                 diagnosis = (
                     f" [yellow]Profitable but thin — ${margin:.2f}/install "
-                    f"margin over CPI ${blended_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+                    f"margin over CPI ${effective_cpi:.2f} (LTV {ratio:.1f}×)[/]"
                 )
             else:
                 diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
