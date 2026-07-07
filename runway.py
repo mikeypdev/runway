@@ -69,16 +69,16 @@ EXPOSED_PARAMS = [
 DEFAULT_SCENARIOS = {
     "F2P Base Case": {
         "model_type": MODEL_F2P,
-        "starting_capital": 1000.0,
+        "starting_capital": 2000.0,
         "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
-        "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
+        "daily_ua_spend": 15.00, "cpi": 1.00, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
-        "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 3.0, "arppu": 0.75,
-        "interstitial_ecpm": 8.00, "interstitial_impressions": 5.0,
-        "rewarded_ecpm": 15.00, "rewarded_views": 0.5, "platform_fee": 30.0,
+        "organic_ratio": 0.25, "virality_k_factor": 0.08,
+        "payer_pct": 3.0, "arppu": 5.00,
+        "interstitial_ecpm": 8.00, "interstitial_impressions": 6.0,
+        "rewarded_ecpm": 15.00, "rewarded_views": 1.0, "platform_fee": 30.0,
         "payout_delay_days": 30,
-        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "fixed_overhead_daily": 15.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
         "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
         "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
@@ -101,16 +101,16 @@ DEFAULT_SCENARIOS = {
     },
     "F2P Remove Ads $2.99": {
         "model_type": MODEL_REMOVE_ADS,
-        "starting_capital": 1000.0,
+        "starting_capital": 2000.0,
         "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
-        "daily_ua_spend": 10.00, "cpi": 0.26, "cpi_saturation": 0.30,
+        "daily_ua_spend": 15.00, "cpi": 1.00, "cpi_saturation": 0.30,
         "influencer_installs": 0.0,
-        "organic_ratio": 0.10, "virality_k_factor": 0.05,
-        "payer_pct": 3.0, "arppu": 0.75,
-        "interstitial_ecpm": 8.00, "interstitial_impressions": 5.0,
-        "rewarded_ecpm": 15.00, "rewarded_views": 0.5, "platform_fee": 30.0,
+        "organic_ratio": 0.25, "virality_k_factor": 0.08,
+        "payer_pct": 3.0, "arppu": 5.00,
+        "interstitial_ecpm": 8.00, "interstitial_impressions": 6.0,
+        "rewarded_ecpm": 15.00, "rewarded_views": 1.0, "platform_fee": 30.0,
         "payout_delay_days": 30,
-        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "fixed_overhead_daily": 15.00, "server_cost_per_k_dau": 0.12,
         "day_1_retention": 40.0, "decay_exponent": 0.55,
         "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
         "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
@@ -171,11 +171,11 @@ class RevenueLagEngine:
     def __init__(self):
         self.model_type = MODEL_F2P
         self.influencer_installs = 0.0
-        self.organic_ratio = 0.10
-        self.virality_k_factor = 0.05
-        self.cpi = 0.26
+        self.organic_ratio = 0.25
+        self.virality_k_factor = 0.08
+        self.cpi = 1.00
         self.cpi_saturation = 0.30
-        self.daily_ua_spend = 10.00
+        self.daily_ua_spend = 15.00
 
         self.ua_scaling_mode = "manual"
         self.target_roi = 3.0
@@ -183,14 +183,14 @@ class RevenueLagEngine:
         self.scale_speed = 1.10
 
         self.payer_pct = 3.0
-        self.arppu = 0.75
+        self.arppu = 5.00
         self.platform_fee = 30.0
         self.interstitial_ecpm = 8.00
-        self.interstitial_impressions = 5.0
+        self.interstitial_impressions = 6.0
         self.rewarded_ecpm = 15.00
-        self.rewarded_views = 0.5
+        self.rewarded_views = 1.0
 
-        self.fixed_overhead_daily = 10.00
+        self.fixed_overhead_daily = 15.00
         self.server_cost_per_k_dau = 0.12
         self.support_cost_per_k_dau = 0.04
         self.ad_mediation_tax = 0.02
@@ -207,7 +207,7 @@ class RevenueLagEngine:
         self.monthly_churn = 8.0
         self.billing_period = BILLING_MONTHLY
         self.start_date = datetime.date.today().strftime("%Y-%m-%d")
-        self.starting_capital = 1000.0
+        self.starting_capital = 2000.0
 
     def apply_params(self, params: dict):
         if "model_type" in params:
