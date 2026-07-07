@@ -3,4 +3,5 @@ __pycache__/
 .mypy_cache/
 .venv/
 scenarios.json
+web_scenarios.json
 .DS_Store
