@@ -1244,7 +1244,7 @@ class WebGameTUI(App):
 
             table.add_row(
                 portal_label,
-                f"{defaults['rev_share']*100:.0f}%",
+                f"{defaults['rev_share']:.0f}%",
                 f"${defaults['rpm']:.2f}",
                 f"{summary['peak_dau']:,}",
                 f"${summary['total_accrued']:,.0f}",
