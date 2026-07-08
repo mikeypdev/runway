@@ -208,6 +208,14 @@ class RevenueLagEngine:
         self.billing_period = BILLING_MONTHLY
         self.start_date = datetime.date.today().strftime("%Y-%m-%d")
         self.starting_capital = 2000.0
+        self._cached_blended_cpi: float | None = None
+        self._cached_all_user_cpi: float | None = None
+        self._cached_realized_ltv: float | None = None
+
+    def _clear_caches(self):
+        self._cached_blended_cpi = None
+        self._cached_all_user_cpi = None
+        self._cached_realized_ltv = None
 
     def apply_params(self, params: dict):
         if "model_type" in params:
@@ -270,6 +278,8 @@ class RevenueLagEngine:
     def _compute_blended_cpi(self, days: int = 365) -> float:
         """Install-weighted average effective CPI over the simulation period,
         accounting for CPI saturation as cumulative paid installs grow."""
+        if self._cached_blended_cpi is not None:
+            return self._cached_blended_cpi
         if self.daily_ua_spend <= 0 or self.cpi <= 0:
             return max(self.cpi, 0.01)
         cumulative_paid = 0.0
@@ -290,6 +300,8 @@ class RevenueLagEngine:
         Lightweight loop mirroring _compute_blended_cpi() but counting free
         installs. Mobile organic is ratio-derived (no traction ramp), so this
         matches the timeline exactly."""
+        if self._cached_all_user_cpi is not None:
+            return self._cached_all_user_cpi
         if self.daily_ua_spend <= 0:
             return 0.0
         cumulative_paid = 0.0
@@ -401,16 +413,22 @@ class RevenueLagEngine:
             return net_iap + net_ads
 
     def calculate_timeline(self):
+        self._clear_caches()
         all_days = []
         cumulative_bank_balance = self.starting_capital
         cohort_history = {}
         accrued_revenue_history = {}
         cumulative_paid_installs = 0.0
+        total_ua_cost = 0.0
+        total_paid_installs_acc = 0.0
+        total_all_installs_acc = 0.0
+        total_revenue_acc = 0.0
         start_date = datetime.date.fromisoformat(self.start_date)
 
         daily_payer_spend = self.calculate_daily_payer_arppu()
         ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
         current_spend = self.daily_ua_spend
+        analytical_ltv = self.calculate_ltv()
 
         active_subscribers = 0.0
         daily_churn = 1.0 - (1.0 - self.monthly_churn / 100.0) ** (1.0 / 30.0)
@@ -421,6 +439,8 @@ class RevenueLagEngine:
             effective_cpi = self.cpi * (1 + self.cpi_saturation * math.log(1 + cumulative_paid_installs / 10000))
             paid_installs = current_spend / effective_cpi if effective_cpi > 0 else 0
             cumulative_paid_installs += paid_installs
+            total_ua_cost += current_spend
+            total_paid_installs_acc += paid_installs
             base_installs = self.influencer_installs + paid_installs
 
             surviving_historical_users = 0.0
@@ -433,6 +453,7 @@ class RevenueLagEngine:
             viral_installs = first_wave / (1 - self.virality_k_factor) if self.virality_k_factor < 1.0 else first_wave * 10
             total_new_installs = base_installs + organic_installs + viral_installs
             cohort_history[day] = total_new_installs
+            total_all_installs_acc += total_new_installs
 
             dau = surviving_historical_users + total_new_installs
 
@@ -441,6 +462,7 @@ class RevenueLagEngine:
 
             day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend, active_subscribers)
             accrued_revenue_history[day] = day_accrued_net_revenue
+            total_revenue_acc += day_accrued_net_revenue
 
             day_settled_cash_inflow = 0.0
             payout_day_source = day - self.payout_delay_days
@@ -472,24 +494,25 @@ class RevenueLagEngine:
             })
 
             if self.ua_scaling_mode == "auto" and day > 0 and day % 7 == 0:
-                recent_days = all_days[-7:]
-                avg_cash_in = sum(d["cash_inflow"] for d in recent_days) / 7.0
-                avg_spend = sum(d.get("ua_spend", current_spend) for d in recent_days) / 7.0 if any("ua_spend" in d for d in recent_days) else current_spend
+                current_ratio = analytical_ltv / effective_cpi if effective_cpi > 0 else 0
 
-                if avg_spend > 0:
-                    implied_ltv_per_install = avg_cash_in / (avg_spend / effective_cpi) if effective_cpi > 0 else 0
-                    current_ratio = implied_ltv_per_install / effective_cpi if effective_cpi > 0 else 0
-
-                    if current_ratio > self.target_roi * 1.5:
-                        current_spend = min(current_spend * self.scale_speed * 1.3, self.max_daily_budget)
-                    elif current_ratio > self.target_roi:
-                        current_spend = min(current_spend * self.scale_speed, self.max_daily_budget)
-                    elif current_ratio > self.target_roi * 0.8:
-                        pass
-                    else:
-                        current_spend = max(current_spend / self.scale_speed, self.daily_ua_spend * 0.1)
+                if current_ratio > self.target_roi * 1.5:
+                    current_spend = min(current_spend * self.scale_speed * 1.3, self.max_daily_budget)
+                elif current_ratio > self.target_roi:
+                    current_spend = min(current_spend * self.scale_speed, self.max_daily_budget)
+                elif current_ratio > self.target_roi * 0.8:
+                    pass
+                else:
+                    current_spend = max(current_spend / self.scale_speed, self.daily_ua_spend * 0.1)
 
             all_days[-1]["ua_spend"] = current_spend
+
+        if total_paid_installs_acc > 0:
+            self._cached_blended_cpi = total_ua_cost / total_paid_installs_acc
+        if total_all_installs_acc > 0 and total_ua_cost > 0:
+            self._cached_all_user_cpi = total_ua_cost / total_all_installs_acc
+        if total_all_installs_acc > 0:
+            self._cached_realized_ltv = total_revenue_acc / total_all_installs_acc
 
         timeline = []
         for d in all_days[:90]:
@@ -513,6 +536,7 @@ class RevenueLagEngine:
                     "ops_cost": sum(r["ops_cost"] for r in rows),
                     "cash_flow": sum(r["cash_flow"] for r in rows),
                     "bank_balance": rows[-1]["bank_balance"],
+                    "ua_spend": rows[-1].get("ua_spend", 0.0),
                 })
 
         return timeline
@@ -543,13 +567,21 @@ class RevenueLagEngine:
     def get_ltv_cpi(self) -> float:
         return self.calculate_ltv_cpi_ratio()
 
+    def get_realized_ltv(self) -> float:
+        if self._cached_realized_ltv is not None:
+            return self._cached_realized_ltv
+        self.calculate_timeline()
+        return self._cached_realized_ltv if self._cached_realized_ltv is not None else self.calculate_ltv()
+
     def solve_parameter(self, param_name: str, target_fn, target_val: float, low: float, high: float, max_iters: int = 10) -> float | None:
         orig = getattr(self, param_name)
         try:
             setattr(self, param_name, low)
+            self._clear_caches()
             val_low = target_fn()
 
             setattr(self, param_name, high)
+            self._clear_caches()
             val_high = target_fn()
 
             min_val = min(val_low, val_high)
@@ -562,6 +594,7 @@ class RevenueLagEngine:
             for _ in range(max_iters):
                 mid = (low + high) / 2.0
                 setattr(self, param_name, mid)
+                self._clear_caches()
                 val_mid = target_fn()
 
                 if (val_mid > target_val if increasing else val_mid < target_val):
@@ -1205,6 +1238,7 @@ class BusinessModelTUI(App):
         timeline_data = self.engine.calculate_timeline()
 
         ltv = self.engine.calculate_ltv()
+        realized_ltv = self.engine.get_realized_ltv()
         ratio = self.engine.calculate_ltv_cpi_ratio()
         ratio_color = "green" if ratio >= 3.0 else ("yellow" if ratio >= 1.0 else "bold red")
         peak_dau = max(d["dau"] for d in timeline_data)
@@ -1233,19 +1267,20 @@ class BusinessModelTUI(App):
         )
 
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
-        margin = ltv - effective_cpi
-        if ratio < 1.0:
+        realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
+        realized_margin = realized_ltv - effective_cpi
+        if realized_ratio < 1.0:
             diagnosis = (
-                f" [bold red]⚠ Losing ${-margin:.2f}/install "
-                f"— effective ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
+                f" [bold red]⚠ Losing ${-realized_margin:.2f}/install "
+                f"— realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
             )
-        elif ratio < 3.0:
+        elif realized_ratio < 3.0:
             diagnosis = (
-                f" [yellow]Profitable but thin — ${margin:.2f}/install "
-                f"margin over CPI ${effective_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+                f" [yellow]Profitable but thin — ${realized_margin:.2f}/install "
+                f"margin over CPI ${effective_cpi:.2f} (realized {realized_ratio:.1f}×)[/]"
             )
         else:
-            diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
+            diagnosis = f" [green]✓ Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)[/]"
         self.query_one("#kpi_diagnosis", Static).update(diagnosis)
 
         table = self.query_one("#timeline_table", DataTable)

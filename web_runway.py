@@ -202,6 +202,14 @@ class WebGameEngine:
 
         self.payout_delay_days = 30
         self.start_date = datetime.date.today().strftime("%Y-%m-%d")
+        self._cached_blended_cpi: float | None = None
+        self._cached_all_user_cpi: float | None = None
+        self._cached_realized_ltv: float | None = None
+
+    def _clear_caches(self):
+        self._cached_blended_cpi = None
+        self._cached_all_user_cpi = None
+        self._cached_realized_ltv = None
 
     def apply_params(self, params: dict):
         if "portal" in params:
@@ -218,7 +226,7 @@ class WebGameEngine:
         return result
 
     def _is_iap_supported(self) -> bool:
-        return PORTALS.get(self.portal, {}).get("iap", False)
+        return bool(PORTALS.get(self.portal, {}).get("iap", False))
 
     def get_retention_rate(self, days_alive: int) -> float:
         if days_alive == 0:
@@ -254,6 +262,8 @@ class WebGameEngine:
     def _compute_blended_cpi(self, days: int = 365) -> float:
         """Install-weighted average effective CPI over the simulation period,
         accounting for CPI saturation as cumulative paid installs grow."""
+        if self._cached_blended_cpi is not None:
+            return self._cached_blended_cpi
         if self.external_ua_spend <= 0 or self.external_cpi <= 0:
             return max(self.external_cpi, 0.01)
         cumulative_paid = 0.0
@@ -275,12 +285,11 @@ class WebGameEngine:
     def _compute_all_user_cpi(self, days: int = 365) -> float:
         """Blended cost per install across ALL users (organic + viral + paid).
 
-        Lightweight loop mirroring _compute_blended_cpi() but counting free
-        installs. Omits the organic traction ramp (which couples to DAU and
-        requires the full O(n^2) cohort simulation), so this is slightly
-        conservative — it undercounts organic installs and overstates CPI.
-        Acceptable for a health diagnosis and keeps the per-keystroke recalc
-        fast."""
+        Sourced from the timeline cache when available so the organic traction
+        ramp and min_plays floor are accounted for. Falls back to a standalone
+        loop (which omits the traction ramp) for solver paths."""
+        if self._cached_all_user_cpi is not None:
+            return self._cached_all_user_cpi
         if self.external_ua_spend <= 0:
             return 0.0
         cumulative_paid = 0.0
@@ -369,12 +378,17 @@ class WebGameEngine:
         return net_rpm + iap_rev
 
     def calculate_timeline(self):
+        self._clear_caches()
         all_days = []
         cumulative_bank_balance = self.starting_capital
         cohort_history: dict[int, float] = {}
         accrued_revenue_history: dict[int, float] = {}
         cumulative_plays = 0.0
         cumulative_paid_installs = 0.0
+        total_ua_cost = 0.0
+        total_paid_installs_acc = 0.0
+        total_all_installs_acc = 0.0
+        total_revenue_acc = 0.0
         start_date = datetime.date.fromisoformat(self.start_date)
 
         for day in range(365):
@@ -393,6 +407,8 @@ class WebGameEngine:
                     effective_cpi = self.external_cpi * saturation_factor
                 ext_players = self.external_ua_spend / effective_cpi
                 cumulative_paid_installs += ext_players
+            total_ua_cost += self.external_ua_spend
+            total_paid_installs_acc += ext_players
 
             traction = min(cumulative_plays / 500_000, 1.5)
             effective_organic = self.organic_plays_per_day * (1.0 + traction)
@@ -406,6 +422,7 @@ class WebGameEngine:
             )
             total_new = base_new + viral_installs
             cohort_history[day] = total_new
+            total_all_installs_acc += total_new
 
             dau = surviving_historical_users + total_new
             plays = dau * self.sessions_per_day
@@ -415,6 +432,7 @@ class WebGameEngine:
 
             day_accrued_net_revenue = self._compute_day_revenue(dau, plays, current_rpm, total_new)
             accrued_revenue_history[day] = day_accrued_net_revenue
+            total_revenue_acc += day_accrued_net_revenue
 
             day_settled_cash_inflow = 0.0
             payout_day_source = day - self.payout_delay_days
@@ -445,6 +463,13 @@ class WebGameEngine:
                 "cash_flow": net_daily_cash_flow,
                 "bank_balance": cumulative_bank_balance,
             })
+
+        if total_paid_installs_acc > 0:
+            self._cached_blended_cpi = total_ua_cost / total_paid_installs_acc
+        if total_all_installs_acc > 0 and total_ua_cost > 0:
+            self._cached_all_user_cpi = total_ua_cost / total_all_installs_acc
+        if total_all_installs_acc > 0:
+            self._cached_realized_ltv = total_revenue_acc / total_all_installs_acc
 
         timeline = []
         for d in all_days[:90]:
@@ -497,13 +522,21 @@ class WebGameEngine:
     def get_ltv_cpi(self) -> float:
         return self.calculate_ltv_cpi_ratio()
 
+    def get_realized_ltv(self) -> float:
+        if self._cached_realized_ltv is not None:
+            return self._cached_realized_ltv
+        self.calculate_timeline()
+        return self._cached_realized_ltv if self._cached_realized_ltv is not None else self.calculate_ltv()
+
     def solve_parameter(self, param_name: str, target_fn, target_val: float, low: float, high: float, max_iters: int = 10) -> float | None:
         orig = getattr(self, param_name)
         try:
             setattr(self, param_name, low)
+            self._clear_caches()
             val_low = target_fn()
 
             setattr(self, param_name, high)
+            self._clear_caches()
             val_high = target_fn()
 
             min_val = min(val_low, val_high)
@@ -516,6 +549,7 @@ class WebGameEngine:
             for _ in range(max_iters):
                 mid = (low + high) / 2.0
                 setattr(self, param_name, mid)
+                self._clear_caches()
                 val_mid = target_fn()
 
                 if (val_mid > target_val if increasing else val_mid < target_val):
@@ -1077,6 +1111,7 @@ class WebGameTUI(App):
         timeline_data = self.engine.calculate_timeline()
 
         ltv = self.engine.calculate_ltv()
+        realized_ltv = self.engine.get_realized_ltv()
         current_rpm = self.engine.base_rpm
         net_rpm = current_rpm * (1.0 - self.engine.portal_rev_share / 100.0)
         peak_dau = max(d["dau"] for d in timeline_data)
@@ -1090,22 +1125,22 @@ class WebGameTUI(App):
             f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
-        ratio = self.engine.calculate_ltv_cpi_ratio()
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
-        margin = ltv - effective_cpi
+        realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
+        realized_margin = realized_ltv - effective_cpi
         if self.engine.external_ua_spend > 0:
-            if ratio < 1.0:
+            if realized_ratio < 1.0:
                 diagnosis = (
-                    f" [bold red]⚠ Losing ${-margin:.2f}/install "
-                    f"— effective ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
+                    f" [bold red]⚠ Losing ${-realized_margin:.2f}/install "
+                    f"— realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
                 )
-            elif ratio < 3.0:
+            elif realized_ratio < 3.0:
                 diagnosis = (
-                    f" [yellow]Profitable but thin — ${margin:.2f}/install "
-                    f"margin over CPI ${effective_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+                    f" [yellow]Profitable but thin — ${realized_margin:.2f}/install "
+                    f"margin over CPI ${effective_cpi:.2f} (realized {realized_ratio:.1f}×)[/]"
                 )
             else:
-                diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
+                diagnosis = f" [green]✓ Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)[/]"
         else:
             daily_rows = timeline_data[:30]
             avg_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)

@@ -190,7 +190,7 @@ MOBILE_PARAMETERS = [
     },
     {
         "name": "arppu", "label": "ARPPU ($)", "type": "float",
-        "default": 0.75, "min": 0.0,
+        "default": 5.0, "min": 0.0,
         "description": "Average revenue per paying user per day (F2P IAP).",
         "models": ["f2p"],
     },
@@ -351,10 +351,13 @@ class MobileGameAPI:
         summary_raw = self.engine.summarize_timeline(timeline, self.engine.starting_capital)
 
         ltv = self.engine.calculate_ltv()
+        realized_ltv = self.engine.get_realized_ltv()
         blended_cpi = self.engine._compute_blended_cpi()
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
         ratio = self.engine.calculate_ltv_cpi_ratio()
         margin = ltv - effective_cpi
+        realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
+        realized_margin = realized_ltv - effective_cpi
 
         model = self.engine.model_type
         if model == "premium":
@@ -367,21 +370,24 @@ class MobileGameAPI:
             activity_label = "peak_dau"
             activity_val = summary_raw["peak_dau"]
 
-        if ratio < 1.0:
-            status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
-        elif ratio < 3.0:
-            status, message = "thin", f"Profitable but thin — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
+        if realized_ratio < 1.0:
+            status, message = "losing", f"Losing ${-realized_margin:.2f}/install — realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
+        elif realized_ratio < 3.0:
+            status, message = "thin", f"Profitable but thin — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
         else:
-            status, message = "healthy", f"Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
+            status, message = "healthy", f"Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
 
         return {
             "summary": {
                 "model_type": model,
                 "ltv": round(ltv, 4),
+                "realized_ltv": round(realized_ltv, 4),
                 "blended_cpi": round(blended_cpi, 4),
                 "effective_cpi": round(effective_cpi, 4),
                 "ltv_cpi_ratio": round(ratio, 4),
+                "realized_ltv_cpi_ratio": round(realized_ratio, 4),
                 "margin_per_install": round(margin, 4),
+                "realized_margin_per_install": round(realized_margin, 4),
                 activity_label: activity_val,
                 "total_revenue": round(summary_raw["total_accrued"], 2),
                 "final_bank": round(summary_raw["final_bank"], 2),
@@ -713,6 +719,7 @@ class WebGameAPI:
         summary_raw = self.engine.summarize_timeline(timeline, self.engine.starting_capital)
 
         ltv = self.engine.calculate_ltv()
+        realized_ltv = self.engine.get_realized_ltv()
         blended_cpi = self.engine._compute_blended_cpi()
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
 
@@ -721,14 +728,14 @@ class WebGameAPI:
         avg_daily_cost = sum(d["ops_cost"] for d in daily_rows) / len(daily_rows)
 
         if self.engine.external_ua_spend > 0:
-            ratio = ltv / effective_cpi if effective_cpi > 0 else float("inf")
-            margin = ltv - effective_cpi
-            if ratio < 1.0:
-                status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
-            elif ratio < 3.0:
-                status, message = "thin", f"Profitable but thin — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
+            realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
+            realized_margin = realized_ltv - effective_cpi
+            if realized_ratio < 1.0:
+                status, message = "losing", f"Losing ${-realized_margin:.2f}/install — realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
+            elif realized_ratio < 3.0:
+                status, message = "thin", f"Profitable but thin — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
             else:
-                status, message = "healthy", f"Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
+                status, message = "healthy", f"Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
         else:
             daily_margin = avg_daily_rev - avg_daily_cost
             if daily_margin < 0:
@@ -742,6 +749,7 @@ class WebGameAPI:
             "summary": {
                 "portal": self.engine.portal,
                 "ltv": round(ltv, 4),
+                "realized_ltv": round(realized_ltv, 4),
                 "blended_cpi": round(blended_cpi, 4) if self.engine.external_ua_spend > 0 else None,
                 "effective_cpi": round(effective_cpi, 4) if self.engine.external_ua_spend > 0 else None,
                 "total_revenue": round(summary_raw["total_accrued"], 2),
@@ -849,7 +857,9 @@ def compare_mobile_scenarios(scenarios: dict[str, dict]) -> list[dict]:
             "name": name,
             "model_type": eval_result["summary"]["model_type"],
             "ltv": eval_result["summary"]["ltv"],
+            "realized_ltv": eval_result["summary"]["realized_ltv"],
             "ltv_cpi_ratio": eval_result["summary"]["ltv_cpi_ratio"],
+            "realized_ltv_cpi_ratio": eval_result["summary"]["realized_ltv_cpi_ratio"],
             "total_revenue": eval_result["summary"]["total_revenue"],
             "final_bank": eval_result["summary"]["final_bank"],
             "break_even_day": eval_result["summary"]["break_even_day"],
@@ -868,6 +878,7 @@ def compare_web_scenarios(scenarios: dict[str, dict]) -> list[dict]:
             "name": name,
             "portal": eval_result["summary"]["portal"],
             "ltv": eval_result["summary"]["ltv"],
+            "realized_ltv": eval_result["summary"]["realized_ltv"],
             "total_revenue": eval_result["summary"]["total_revenue"],
             "final_bank": eval_result["summary"]["final_bank"],
             "break_even_day": eval_result["summary"]["break_even_day"],

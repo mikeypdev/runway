@@ -67,11 +67,14 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
 {
     "summary": {
         "model_type": "f2p",
-        "ltv": 0.86,              # Lifetime value per install
+        "ltv": 0.86,              # Analytical lifetime value per install
+        "realized_ltv": 0.52,     # Revenue per install over the actual 365-day timeline
         "blended_cpi": 0.30,      # Paid-only install-weighted CPI (with saturation)
         "effective_cpi": 0.24,    # CPI used for diagnosis (blends paid + organic + viral)
-        "ltv_cpi_ratio": 3.6,     # LTV / effective CPI
-        "margin_per_install": 0.56,  # LTV - CPI
+        "ltv_cpi_ratio": 3.6,     # Analytical LTV / effective CPI
+        "realized_ltv_cpi_ratio": 2.2,  # Realized LTV / effective CPI (drives diagnosis)
+        "margin_per_install": 0.56,     # Analytical LTV - CPI
+        "realized_margin_per_install": 0.28,  # Realized LTV - CPI
         "peak_dau": 797,          # "total_installs" for premium, "peak_subs" for subscription
         "total_revenue": 7200.0,  # 365-day accrued revenue
         "final_bank": -81.0,      # Year-end bank balance
@@ -79,7 +82,7 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
     },
     "diagnosis": {
         "status": "thin",         # "healthy" | "thin" | "losing"
-        "message": "Profitable but thin — $0.56/install margin (LTV 2.9× CPI)",
+        "message": "Profitable but thin — $0.28/install margin (realized 2.2× CPI)",
     },
     "breakdown": {
         "description": "Lifetime 21 days, 3% payers",
@@ -132,7 +135,7 @@ web.sensitivity("base_rpm", [0.50, 1.0, 2.0, 3.0])
 
 ### Diagnosis Modes
 
-- **Paid UA** (external_ua_spend > 0): Uses LTV vs CPI margin, same as mobile.
+- **Paid UA** (external_ua_spend > 0): Uses **realized LTV** (actual 365-day revenue per install) vs effective CPI margin. The analytical `ltv` assumes each install gets its full retention lifetime; `realized_ltv` accounts for cohorts arriving throughout the year whose revenue is truncated by the 365-day window.
 - **Organic-only** (external_ua_spend = 0): Uses daily revenue vs daily costs (overhead + server + CDN), since CPI is not applicable.
 
 ### Evaluate Result Structure
@@ -143,7 +146,8 @@ The web result shape differs from mobile. The `summary` adds `portal`, `total_pl
 {
     "summary": {
         "portal": "Web Portal",
-        "ltv": 0.017,             # Lifetime value per play
+        "ltv": 0.017,             # Analytical lifetime value per play
+        "realized_ltv": 0.012,    # Revenue per install over the actual 365-day timeline
         "blended_cpi": None,      # paid-only CPI, null when organic-only
         "effective_cpi": None,    # diagnosis CPI (blends organic+viral+paid); null when organic-only
         "total_revenue": 31000.0, # 365-day accrued revenue
