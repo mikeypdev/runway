@@ -7,6 +7,8 @@ Two Textual TUI applications that model game financial runways over 12 months. E
 - **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, Remove Ads, and Subscription business models with CPI-based UA, ARPPU monetization, ad revenue, and recurring subscriptions.
 - **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social App Mini Game, Custom Web) with session-based ad impressions and CDN costs.
 
+For **analysis, comparison, or evaluation** tasks, **`AGENT_API.md`** documents the programmatic API (`api.py`) — the preferred interface for running simulations without the TUI. For **model development** (fixing bugs, adding features), edit the engines directly (`runway.py`, `web_runway.py`).
+
 ## Running
 
 ```bash

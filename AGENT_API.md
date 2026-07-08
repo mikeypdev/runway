@@ -4,6 +4,34 @@ This document describes the programmatic API for modeling mobile and web game fi
 
 No TUI or terminal interaction required. All methods return plain dicts and lists.
 
+## Crafting Effective Prompts
+
+The quality of the analysis depends heavily on what the prompt specifies. The API can sweep uncertain variables and stress-test assumptions, but only if the prompt provides enough context and asks for robustness. A prompt that omits key details forces the agent to guess at assumptions, then require follow-up questions to validate them.
+
+### Include these in the prompt
+
+| Detail | Why it matters | Example |
+|---|---|---|
+| **Genre and mechanics** | Drives retention, virality, and IAP-fit estimates | "casual family strategy — chess board + card game elements" |
+| **Quantified budget** | Anchors starting capital, overhead, and UA spend | "~$1,500 starting capital, ~$10/day available for UA, solo dev with $0 salary" |
+| **Retention range, not sentiment** | "Optimistic" is uncalibratable; a range makes the sensitivity table the primary output | "assume D1 retention 25–45%, I don't have data yet" |
+| **Sharing/social features** | Directly determines k-factor (0 if none exists) | "no built-in sharing features yet" or "has invite-a-friend" |
+| **Target metric** | "Best revenue" is ambiguous — gross, net, or year-end bank rank differently | "maximize year-end bank balance" |
+| **Robustness request** | Turns a point estimate into the sensitivity-driven analysis that actually de-risks the decision | "sweep the uncertain variables and show how robust the recommendation is" |
+
+### Example prompt
+
+> I have a new casual family strategy game (familiar chess board + simple card game mechanics). I can ship on web, mobile, or both. **Budget: ~$1,500 starting capital, ~$10/day for UA.** I don't have retention data yet — **assume a D1 range of 25–45% rather than a point estimate.** The game has **no built-in sharing or social features yet.** I'm a solo dev with **minimal overhead.**
+>
+> Which business model maximizes **year-end bank balance**, and **how robust is that recommendation across the uncertain assumptions** (retention, CPI, organic traffic)? Sweep the key variables and show the sensitivity. Follow AGENT_API.md.
+
+### Anti-patterns to avoid
+
+- **Vague budget terms** ("minimal budget") — the agent guesses; could be off by 10× in either direction.
+- **Sentiment instead of ranges** ("optimistic retention") — uncalibratable; forces a single point estimate when a sweep is the right tool.
+- **Asking for "the best model"** — implies one answer; the honest output is a robustness comparison, not a ranking by a single metric.
+- **Omitting viral/social context** — the agent may assume virality (k-factor) that the game has no mechanic to earn.
+
 ## Quick Start
 
 ```python
@@ -123,6 +151,19 @@ The `breakdown.components` dict uses different keys depending on `model_type`:
 | Social App Mini Game | 50% | $1.50 | Yes | 2000/day | Mini games in social apps |
 | Custom Web | 0% | $1.00 | Yes | 0/day | Self-published, needs paid UA |
 
+### Portal Parameters
+
+Portal-specific values are set automatically by `default_scenario()`. The portal table column names above map to these parameter names:
+
+| Portal table column | Parameter name |
+|---|---|
+| Rev Share | `portal_rev_share` |
+| RPM | `base_rpm` |
+| Organic Plays | `organic_plays_per_day` |
+| IAP | (no parameter — gated by the portal definition; configure via `iap_payer_pct` + `iap_avg_purchase`) |
+
+**Always start from `default_scenario(portal)` and overlay changes.** Constructing a web params dict from scratch will silently omit portal-specific RPM, rev-share, and organic traffic — producing identical results across all portals.
+
 ### Key Methods
 
 ```python
@@ -208,6 +249,20 @@ for r in compare_web_scenarios(web):
 
 Each result dict has `name`, then a subset of summary fields (`ltv`, `total_revenue`, `final_bank`, `break_even_day`) and a `diagnosis` status string. Mobile results also include `model_type` and `ltv_cpi_ratio`; web results include `portal`.
 
+## Modeling Limitations
+
+The engines are simplified financial models. Key limitations to flag when interpreting results:
+
+| Not modeled | Impact | Mitigation |
+|---|---|---|
+| **Price elasticity** (mobile premium) | Raising `game_price` never reduces installs — revenue scales linearly with price | Manually discount installs when sweeping price; validate against real conversion data |
+| **Organic traffic ramp-up** (web) | `organic_plays_per_day` is a flat constant from day 1 — new titles don't get full portal discovery immediately | Sensitivity-test at 0, 100, 500 plays/day for unproven titles |
+| **k-factor mechanic requirement** | `virality_k_factor` applies blindly — it assumes an in-game sharing/invite loop exists | Set k=0 unless the game has an explicit viral feature |
+| **Retention uncertainty** | D1 retention is a single point estimate with no confidence interval | Always sweep retention; the retention-robustness table matters more than the point estimate |
+| **CPI saturation only** (no market competition) | CPI rises with your own spend, not with competitor bidding | Treat CPI as a lower bound in competitive markets |
+
+When presenting results, disclose which of these apply to the scenario.
+
 ## Common Patterns
 
 ### Find the breakeven CPI
@@ -216,6 +271,10 @@ api = MobileGameAPI(params)
 solved = api.solve("cpi", "final_bank", 0.0, low=0.01, high=5.0)
 print(f"Breakeven CPI: ${solved['value']:.2f}")
 ```
+
+### Interpreting solve() results
+
+`solve()` returns `None` when the target metric cannot be reached within `[low, high]`. The most common case: the model is profitable (or unprofitable) across the entire search range — e.g., Mobile Premium never reaches `final_bank = 0` at any CPI because organic + viral installs keep it above water. When this happens, run a sensitivity sweep to understand the shape of the curve rather than relying on the solver.
 
 ### Find minimum viable subscription price
 ```python
@@ -266,3 +325,12 @@ The `timeline` field in evaluate results contains 90 daily rows followed by 9 mo
 | `bank_balance` | float | Running bank balance |
 
 Mobile timelines also include `installs` (daily new installs) and `active_subs` (for subscription). Web timelines include `plays` and `rpm`.
+
+## Best Practices for Reliable Analysis
+
+1. **Always start from `default_scenario()`** and overlay changes — never construct params dicts from scratch (portal-specific values will be silently dropped).
+2. **Sweep every uncertain assumption.** The point estimate is always wrong; the sensitivity table is the answer. Priority sweeps: retention, CPI, organic traffic.
+3. **Set k-factor to 0** unless the game has a confirmed viral/sharing mechanic.
+4. **Discount web organic traffic** for new/unknown titles — portal defaults assume established discovery placement.
+5. **Don't sweep price without elasticity.** The engine has no price-elasticity model; raising price naively increases revenue without reducing installs.
+6. **Disclose all applied tuning** when presenting results, including which defaults were changed and why.
