@@ -352,8 +352,9 @@ class MobileGameAPI:
 
         ltv = self.engine.calculate_ltv()
         blended_cpi = self.engine._compute_blended_cpi()
+        effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
         ratio = self.engine.calculate_ltv_cpi_ratio()
-        margin = ltv - blended_cpi
+        margin = ltv - effective_cpi
 
         model = self.engine.model_type
         if model == "premium":
@@ -367,7 +368,7 @@ class MobileGameAPI:
             activity_val = summary_raw["peak_dau"]
 
         if ratio < 1.0:
-            status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}"
+            status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
         elif ratio < 3.0:
             status, message = "thin", f"Profitable but thin — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
         else:
@@ -378,6 +379,7 @@ class MobileGameAPI:
                 "model_type": model,
                 "ltv": round(ltv, 4),
                 "blended_cpi": round(blended_cpi, 4),
+                "effective_cpi": round(effective_cpi, 4),
                 "ltv_cpi_ratio": round(ratio, 4),
                 "margin_per_install": round(margin, 4),
                 activity_label: activity_val,
@@ -389,11 +391,11 @@ class MobileGameAPI:
                 "status": status,
                 "message": message,
             },
-            "breakdown": self._structured_breakdown(ltv, blended_cpi),
+            "breakdown": self._structured_breakdown(ltv, effective_cpi),
             "timeline": timeline,
         }
 
-    def _structured_breakdown(self, ltv: float, blended_cpi: float) -> dict:
+    def _structured_breakdown(self, ltv: float, cpi: float) -> dict:
         """Return structured LTV decomposition (not markup)."""
         lifetime = self.engine.calculate_lifetime()
         model = self.engine.model_type
@@ -432,8 +434,9 @@ class MobileGameAPI:
             "description": description,
             "components": components,
             "total_ltv": round(ltv, 4),
-            "blended_cpi": round(blended_cpi, 4),
-            "margin_per_install": round(ltv - blended_cpi, 4),
+            "blended_cpi": round(self.engine._compute_blended_cpi(), 4),
+            "effective_cpi": round(cpi, 4),
+            "margin_per_install": round(ltv - cpi, 4),
         }
 
     def sensitivity(self, param: str, values: list[float] | None = None) -> list[dict]:

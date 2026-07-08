@@ -68,8 +68,9 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
     "summary": {
         "model_type": "f2p",
         "ltv": 0.86,              # Lifetime value per install
-        "blended_cpi": 0.30,      # Install-weighted avg CPI (with saturation)
-        "ltv_cpi_ratio": 2.9,     # LTV / blended CPI
+        "blended_cpi": 0.30,      # Paid-only install-weighted CPI (with saturation)
+        "effective_cpi": 0.24,    # CPI used for diagnosis (blends paid + organic + viral)
+        "ltv_cpi_ratio": 3.6,     # LTV / effective CPI
         "margin_per_install": 0.56,  # LTV - CPI
         "peak_dau": 797,          # "total_installs" for premium, "peak_subs" for subscription
         "total_revenue": 7200.0,  # 365-day accrued revenue
@@ -88,7 +89,8 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
         },
         "total_ltv": 0.86,
         "blended_cpi": 0.30,
-        "margin_per_install": 0.56,
+        "effective_cpi": 0.24,
+        "margin_per_install": 0.62,
     },
     "timeline": [ ... ],  # 90 daily rows + 9 monthly summaries
 }

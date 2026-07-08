@@ -285,14 +285,33 @@ class RevenueLagEngine:
             return max(self.cpi, 0.01)
         return total_cost / total_installs
 
+    def _compute_all_user_cpi(self) -> float:
+        """Blended cost per install across ALL users (paid + organic + viral),
+        sourced from the real simulation."""
+        if self.daily_ua_spend <= 0:
+            return 0.0
+        total_installs = sum(d["installs"] for d in self.calculate_timeline())
+        if total_installs <= 0:
+            return 0.0
+        return (self.daily_ua_spend * 365) / total_installs
+
+    def _compute_effective_cpi_for_diagnosis(self) -> float:
+        """Blended cost per install across all users when paid UA is active;
+        falls back to paid-only CPI otherwise."""
+        if self.daily_ua_spend > 0:
+            all_user_cpi = self._compute_all_user_cpi()
+            if all_user_cpi > 0:
+                return all_user_cpi
+        return max(self._compute_blended_cpi(), 0.01)
+
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
-        effective_cpi = max(self._compute_blended_cpi(), 0.01)
+        effective_cpi = self._compute_effective_cpi_for_diagnosis()
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
     def ltv_breakdown_lines(self) -> list[str]:
         """Model-specific LTV decomposition as Rich markup lines for display."""
-        blended_cpi = self._compute_blended_cpi()
+        effective_cpi = self._compute_effective_cpi_for_diagnosis()
         ltv = self.calculate_ltv()
         lifetime = self.calculate_lifetime()
         lines: list[str] = []
@@ -340,7 +359,7 @@ class RevenueLagEngine:
             lines.append(f"  UA spend:             ${self.daily_ua_spend:.2f}/day")
         lines.append(f"  [bold]Daily margin: ${avg_rev - total_daily_cost:+.2f}/day (rev ${avg_rev:.0f} − costs ${total_daily_cost:.0f})[/]")
 
-        lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${blended_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - blended_cpi:+.2f}/install[/]")
+        lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${effective_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - effective_cpi:+.2f}/install[/]")
         return lines
 
     def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float, active_subscribers: float = 0.0) -> float:
@@ -1198,17 +1217,17 @@ class BusinessModelTUI(App):
             f"[dim]Year-End[/] [{bank_color} bold]${final_bank:,.0f}[/]"
         )
 
-        blended_cpi = self.engine._compute_blended_cpi()
-        margin = ltv - blended_cpi
+        effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
+        margin = ltv - effective_cpi
         if ratio < 1.0:
             diagnosis = (
                 f" [bold red]⚠ Losing ${-margin:.2f}/install "
-                f"— effective ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}[/]"
+                f"— effective ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
             )
         elif ratio < 3.0:
             diagnosis = (
                 f" [yellow]Profitable but thin — ${margin:.2f}/install "
-                f"margin over CPI ${blended_cpi:.2f} (LTV {ratio:.1f}×)[/]"
+                f"margin over CPI ${effective_cpi:.2f} (LTV {ratio:.1f}×)[/]"
             )
         else:
             diagnosis = f" [green]✓ Healthy — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)[/]"
