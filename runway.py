@@ -285,15 +285,30 @@ class RevenueLagEngine:
             return max(self.cpi, 0.01)
         return total_cost / total_installs
 
-    def _compute_all_user_cpi(self) -> float:
-        """Blended cost per install across ALL users (paid + organic + viral),
-        sourced from the real simulation."""
+    def _compute_all_user_cpi(self, days: int = 365) -> float:
+        """Blended cost per install across ALL users (paid + organic + viral).
+        Lightweight loop mirroring _compute_blended_cpi() but counting free
+        installs. Mobile organic is ratio-derived (no traction ramp), so this
+        matches the timeline exactly."""
         if self.daily_ua_spend <= 0:
             return 0.0
-        total_installs = sum(d["installs"] for d in self.calculate_timeline())
-        if total_installs <= 0:
+        cumulative_paid = 0.0
+        total_cost = 0.0
+        total_all_installs = 0.0
+        for _ in range(days):
+            effective_cpi = self.cpi * (1 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000))
+            paid_installs = self.daily_ua_spend / effective_cpi if effective_cpi > 0 else 0
+            base_installs = self.influencer_installs + paid_installs
+            organic_installs = base_installs * self.organic_ratio
+            first_wave = (base_installs + organic_installs) * self.virality_k_factor
+            viral_installs = first_wave / (1 - self.virality_k_factor) if self.virality_k_factor < 1.0 else first_wave * 10
+            total_new = base_installs + organic_installs + viral_installs
+            total_cost += self.daily_ua_spend
+            total_all_installs += total_new
+            cumulative_paid += paid_installs
+        if total_all_installs <= 0:
             return 0.0
-        return (self.daily_ua_spend * 365) / total_installs
+        return total_cost / total_all_installs
 
     def _compute_effective_cpi_for_diagnosis(self) -> float:
         """Blended cost per install across all users when paid UA is active;

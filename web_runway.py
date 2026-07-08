@@ -272,17 +272,36 @@ class WebGameEngine:
             return max(self.external_cpi, 0.01)
         return total_cost / total_installs
 
-    def _compute_all_user_cpi(self) -> float:
-        """Blended cost per install across ALL users (organic + viral + paid),
-        sourced from the real simulation so the organic traction ramp and
-        min_plays floor are accounted for."""
+    def _compute_all_user_cpi(self, days: int = 365) -> float:
+        """Blended cost per install across ALL users (organic + viral + paid).
+
+        Lightweight loop mirroring _compute_blended_cpi() but counting free
+        installs. Omits the organic traction ramp (which couples to DAU and
+        requires the full O(n^2) cohort simulation), so this is slightly
+        conservative — it undercounts organic installs and overstates CPI.
+        Acceptable for a health diagnosis and keeps the per-keystroke recalc
+        fast."""
         if self.external_ua_spend <= 0:
             return 0.0
-        timeline = self.calculate_timeline()
-        total_installs = sum(d.get("new_users", 0.0) for d in timeline)
-        if total_installs <= 0:
+        cumulative_paid = 0.0
+        total_cost = 0.0
+        total_all_installs = 0.0
+        for _ in range(days):
+            effective_cpi = self.external_cpi
+            if self.cpi_saturation > 0:
+                saturation_factor = 1.0 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000)
+                effective_cpi = self.external_cpi * saturation_factor
+            paid_installs = self.external_ua_spend / effective_cpi if effective_cpi > 0 else 0
+            organic = self.organic_plays_per_day
+            base_new = organic + paid_installs
+            viral = base_new * self.viral_k / (1 - self.viral_k) if self.viral_k < 1.0 else base_new * 10
+            total_new = base_new + viral
+            total_cost += self.external_ua_spend
+            total_all_installs += total_new
+            cumulative_paid += paid_installs
+        if total_all_installs <= 0:
             return 0.0
-        return (self.external_ua_spend * 365) / total_installs
+        return total_cost / total_all_installs
 
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
