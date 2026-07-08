@@ -31,11 +31,15 @@ Includes a **portal comparison** tab that runs the same parameters across all fo
 ## Quick start
 
 ```bash
+# first time: create the virtualenv and install dependencies
+python3.14 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
 ./runway.sh        # mobile game simulator
 ./web_runway.sh    # web game simulator
 ```
 
-Requires a Python 3.14 virtualenv at `.venv/` with `textual` and `rich` installed.
+Requires Python 3.14 and the dependencies listed in `requirements.txt` (`textual`, `rich`).
 
 ## Programmatic API
 
