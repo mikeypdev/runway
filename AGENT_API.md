@@ -142,7 +142,8 @@ The web result shape differs from mobile. The `summary` adds `portal`, `total_pl
     "summary": {
         "portal": "Web Portal",
         "ltv": 0.017,             # Lifetime value per play
-        "blended_cpi": None,      # null when organic-only (external_ua_spend = 0)
+        "blended_cpi": None,      # paid-only CPI, null when organic-only
+        "effective_cpi": None,    # diagnosis CPI (blends organic+viral+paid); null when organic-only
         "total_revenue": 31000.0, # 365-day accrued revenue
         "total_plays": 15500000,  # Cumulative plays
         "peak_dau": 47000,
@@ -166,13 +167,13 @@ The web result shape differs from mobile. The `summary` adds `portal`, `total_pl
             "iap_revenue_per_install": 0.0,  # only when IAP supported + payer% > 0
         },
         "total_ltv": 0.017,
-        "blended_cpi": None,      # null when organic-only
+        "effective_cpi": None,    # CPI used for margin (blends organic+viral+paid); null when organic-only
     },
     "timeline": [ ... ],  # 90 daily rows + 9 monthly summaries
 }
 ```
 
-> **Note:** `solve(..., "ltv_cpi_ratio", ...)` is meaningless for organic-only web scenarios where `blended_cpi` is null. Use `final_bank` as the target metric there.
+> **Note:** `solve(..., "ltv_cpi_ratio", ...)` is meaningless for organic-only web scenarios where `effective_cpi` is null. Use `final_bank` as the target metric there.
 
 ## Batch Comparison
 

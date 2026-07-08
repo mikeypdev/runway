@@ -711,16 +711,17 @@ class WebGameAPI:
 
         ltv = self.engine.calculate_ltv()
         blended_cpi = self.engine._compute_blended_cpi()
+        effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
 
         daily_rows = timeline[:30]
         avg_daily_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)
         avg_daily_cost = sum(d["ops_cost"] for d in daily_rows) / len(daily_rows)
 
         if self.engine.external_ua_spend > 0:
-            ratio = ltv / blended_cpi if blended_cpi > 0 else float("inf")
-            margin = ltv - blended_cpi
+            ratio = ltv / effective_cpi if effective_cpi > 0 else float("inf")
+            margin = ltv - effective_cpi
             if ratio < 1.0:
-                status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${blended_cpi:.2f}"
+                status, message = "losing", f"Losing ${-margin:.2f}/install — LTV ${ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
             elif ratio < 3.0:
                 status, message = "thin", f"Profitable but thin — ${margin:.2f}/install margin (LTV {ratio:.1f}× CPI)"
             else:
@@ -739,6 +740,7 @@ class WebGameAPI:
                 "portal": self.engine.portal,
                 "ltv": round(ltv, 4),
                 "blended_cpi": round(blended_cpi, 4) if self.engine.external_ua_spend > 0 else None,
+                "effective_cpi": round(effective_cpi, 4) if self.engine.external_ua_spend > 0 else None,
                 "total_revenue": round(summary_raw["total_accrued"], 2),
                 "total_plays": summary_raw["total_plays"],
                 "peak_dau": summary_raw["peak_dau"],
@@ -751,11 +753,11 @@ class WebGameAPI:
                 "status": status,
                 "message": message,
             },
-            "breakdown": self._structured_breakdown(ltv, blended_cpi),
+            "breakdown": self._structured_breakdown(ltv, effective_cpi),
             "timeline": timeline,
         }
 
-    def _structured_breakdown(self, ltv: float, blended_cpi: float) -> dict:
+    def _structured_breakdown(self, ltv: float, cpi: float) -> dict:
         """Return structured LTV decomposition."""
         lifetime = self.engine.calculate_lifetime()
         net_rpm_per_imp = (self.engine.base_rpm / 1000.0) * (1.0 - self.engine.portal_rev_share / 100.0) * (self.engine.ad_fill_rate / 100.0)
@@ -777,7 +779,7 @@ class WebGameAPI:
         return {
             "components": components,
             "total_ltv": round(ltv, 4),
-            "blended_cpi": round(blended_cpi, 4) if self.engine.external_ua_spend > 0 else None,
+            "effective_cpi": round(cpi, 4) if self.engine.external_ua_spend > 0 else None,
         }
 
     def sensitivity(self, param: str, values: list[float] | None = None) -> list[dict]:

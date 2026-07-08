@@ -272,30 +272,17 @@ class WebGameEngine:
             return max(self.external_cpi, 0.01)
         return total_cost / total_installs
 
-    def _compute_all_user_cpi(self, days: int = 365) -> float:
-        """Blended cost per install across ALL users (organic + viral + paid).
-        Returns the effective cost per install when accounting for free users."""
+    def _compute_all_user_cpi(self) -> float:
+        """Blended cost per install across ALL users (organic + viral + paid),
+        sourced from the real simulation so the organic traction ramp and
+        min_plays floor are accounted for."""
         if self.external_ua_spend <= 0:
             return 0.0
-        cumulative_paid = 0.0
-        total_cost = 0.0
-        total_all_installs = 0.0
-        for _ in range(days):
-            effective_cpi = self.external_cpi
-            if self.cpi_saturation > 0:
-                saturation_factor = 1.0 + self.cpi_saturation * math.log(1 + cumulative_paid / 10000)
-                effective_cpi = self.external_cpi * saturation_factor
-            paid_installs = self.external_ua_spend / effective_cpi
-            organic = self.organic_plays_per_day
-            base_new = organic + paid_installs
-            viral = base_new * self.viral_k / (1 - self.viral_k) if self.viral_k < 1.0 else base_new * 10
-            all_installs = base_new + viral
-            total_cost += self.external_ua_spend
-            total_all_installs += all_installs
-            cumulative_paid += paid_installs
-        if total_all_installs <= 0:
+        timeline = self.calculate_timeline()
+        total_installs = sum(d.get("new_users", 0.0) for d in timeline)
+        if total_installs <= 0:
             return 0.0
-        return total_cost / total_all_installs
+        return (self.external_ua_spend * 365) / total_installs
 
     def calculate_ltv_cpi_ratio(self) -> float:
         ltv = self.calculate_ltv()
@@ -303,9 +290,9 @@ class WebGameEngine:
         return ltv / effective_cpi if effective_cpi > 0 else float("inf")
 
     def _compute_effective_cpi_for_diagnosis(self) -> float:
-        """When organic traffic exists, use blended cost across all users;
-        otherwise fall back to paid-only CPI."""
-        if self.organic_plays_per_day > 0 and self.external_ua_spend > 0:
+        """Blended cost per install across all users when paid UA is active;
+        falls back to paid-only CPI otherwise."""
+        if self.external_ua_spend > 0:
             all_user_cpi = self._compute_all_user_cpi()
             if all_user_cpi > 0:
                 return all_user_cpi
@@ -313,7 +300,7 @@ class WebGameEngine:
 
     def ltv_breakdown_lines(self) -> list[str]:
         """LTV decomposition as Rich markup lines for display."""
-        blended_cpi = self._compute_blended_cpi()
+        effective_cpi = self._compute_effective_cpi_for_diagnosis()
         ltv = self.calculate_ltv()
         lifetime = self.calculate_lifetime()
         net_rpm_per_impression = (self.base_rpm / 1000.0) * (1.0 - self.portal_rev_share / 100.0) * (self.ad_fill_rate / 100.0)
@@ -330,7 +317,7 @@ class WebGameEngine:
             lines.append(f"  IAP per install:      ${iap_ltv:.2f} ({self.iap_payer_pct:.1f}% × ${self.iap_avg_purchase:.2f})")
 
         if self.external_ua_spend > 0:
-            lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${blended_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - blended_cpi:+.2f}/install[/]")
+            lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${effective_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - effective_cpi:+.2f}/install[/]")
         else:
             timeline = self.calculate_timeline()
             daily_rows = timeline[:30]
@@ -431,6 +418,7 @@ class WebGameEngine:
                 "date": current_date,
                 "dau": int(dau),
                 "plays": int(plays),
+                "new_users": total_new,
                 "rpm": current_rpm,
                 "accrued_rev": day_accrued_net_revenue,
                 "cash_inflow": day_settled_cash_inflow,
@@ -455,6 +443,7 @@ class WebGameEngine:
                     "date": f"{key} (month)",
                     "dau": rows[-1]["dau"],
                     "plays": sum(r["plays"] for r in rows),
+                    "new_users": sum(r["new_users"] for r in rows),
                     "rpm": rows[-1]["rpm"],
                     "accrued_rev": sum(r["accrued_rev"] for r in rows),
                     "cash_inflow": sum(r["cash_inflow"] for r in rows),
