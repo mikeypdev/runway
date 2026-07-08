@@ -1267,20 +1267,32 @@ class BusinessModelTUI(App):
         )
 
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
-        realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
-        realized_margin = realized_ltv - effective_cpi
-        if realized_ratio < 1.0:
+        total_revenue = sum(d["accrued_rev"] for d in timeline_data)
+        total_ops = sum(d["ops_cost"] for d in timeline_data)
+        annual_net = total_revenue - total_ops
+        fully_loaded_cpi = total_ops / total_installs if total_installs > 0 else float("inf")
+        if annual_net < 0:
+            if realized_ltv < effective_cpi:
+                diagnosis = (
+                    f" [bold red]⚠ Losing ${-annual_net:,.0f}/year "
+                    f"— realized ${realized_ltv:.2f}/install can't cover CPI ${effective_cpi:.2f}[/]"
+                )
+            else:
+                diagnosis = (
+                    f" [bold red]⚠ Losing ${-annual_net:,.0f}/year "
+                    f"— ${realized_ltv:.2f}/install beats CPI ${effective_cpi:.2f} but overhead crushes the margin "
+                    f"(fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
+                )
+        elif annual_net < total_ops * 0.3:
             diagnosis = (
-                f" [bold red]⚠ Losing ${-realized_margin:.2f}/install "
-                f"— realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
-            )
-        elif realized_ratio < 3.0:
-            diagnosis = (
-                f" [yellow]Profitable but thin — ${realized_margin:.2f}/install "
-                f"margin over CPI ${effective_cpi:.2f} (realized {realized_ratio:.1f}×)[/]"
+                f" [yellow]Thin — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install "
+                f"vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
             )
         else:
-            diagnosis = f" [green]✓ Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)[/]"
+            diagnosis = (
+                f" [green]✓ Healthy — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install "
+                f"vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
+            )
         self.query_one("#kpi_diagnosis", Static).update(diagnosis)
 
         table = self.query_one("#timeline_table", DataTable)

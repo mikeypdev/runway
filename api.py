@@ -359,6 +359,12 @@ class MobileGameAPI:
         realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
         realized_margin = realized_ltv - effective_cpi
 
+        total_revenue = sum(d["accrued_rev"] for d in timeline)
+        total_ops = sum(d["ops_cost"] for d in timeline)
+        total_installs = summary_raw["total_installs"]
+        annual_net = total_revenue - total_ops
+        fully_loaded_cpi = total_ops / total_installs if total_installs > 0 else float("inf")
+
         model = self.engine.model_type
         if model == "premium":
             activity_label = "total_installs"
@@ -370,12 +376,19 @@ class MobileGameAPI:
             activity_label = "peak_dau"
             activity_val = summary_raw["peak_dau"]
 
-        if realized_ratio < 1.0:
-            status, message = "losing", f"Losing ${-realized_margin:.2f}/install — realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
-        elif realized_ratio < 3.0:
-            status, message = "thin", f"Profitable but thin — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
+        if annual_net < 0:
+            if realized_ltv < effective_cpi:
+                status = "losing"
+                message = f"Losing ${-annual_net:,.0f}/year — realized ${realized_ltv:.2f}/install can't cover CPI ${effective_cpi:.2f}"
+            else:
+                status = "losing"
+                message = f"Losing ${-annual_net:,.0f}/year — ${realized_ltv:.2f}/install beats CPI ${effective_cpi:.2f} but overhead crushes the margin (fully-loaded ${fully_loaded_cpi:.2f}/install)"
+        elif annual_net < total_ops * 0.3:
+            status = "thin"
+            message = f"Thin — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)"
         else:
-            status, message = "healthy", f"Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
+            status = "healthy"
+            message = f"Healthy — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)"
 
         return {
             "summary": {
@@ -388,6 +401,8 @@ class MobileGameAPI:
                 "realized_ltv_cpi_ratio": round(realized_ratio, 4),
                 "margin_per_install": round(margin, 4),
                 "realized_margin_per_install": round(realized_margin, 4),
+                "fully_loaded_cpi": round(fully_loaded_cpi, 4),
+                "annual_net": round(annual_net, 2),
                 activity_label: activity_val,
                 "total_revenue": round(summary_raw["total_accrued"], 2),
                 "final_bank": round(summary_raw["final_bank"], 2),
@@ -712,7 +727,7 @@ class WebGameAPI:
     def evaluate(self) -> dict:
         """Run the full 365-day simulation and return structured results.
 
-        For paid UA scenarios, the diagnosis uses LTV vs CPI margin.
+        For paid UA scenarios, the diagnosis uses annual net revenue vs total costs.
         For organic-only scenarios, it uses daily revenue vs daily costs.
         """
         timeline = self.engine.calculate_timeline()
@@ -728,14 +743,24 @@ class WebGameAPI:
         avg_daily_cost = sum(d["ops_cost"] for d in daily_rows) / len(daily_rows)
 
         if self.engine.external_ua_spend > 0:
-            realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
-            realized_margin = realized_ltv - effective_cpi
-            if realized_ratio < 1.0:
-                status, message = "losing", f"Losing ${-realized_margin:.2f}/install — realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}"
-            elif realized_ratio < 3.0:
-                status, message = "thin", f"Profitable but thin — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
+            total_revenue = sum(d["accrued_rev"] for d in timeline)
+            total_ops = sum(d["ops_cost"] for d in timeline)
+            total_new_users = sum(d["new_users"] for d in timeline)
+            annual_net = total_revenue - total_ops
+            fully_loaded_cpi = total_ops / total_new_users if total_new_users > 0 else float("inf")
+            if annual_net < 0:
+                if realized_ltv < effective_cpi:
+                    status = "losing"
+                    message = f"Losing ${-annual_net:,.0f}/year — realized ${realized_ltv:.2f}/install can't cover CPI ${effective_cpi:.2f}"
+                else:
+                    status = "losing"
+                    message = f"Losing ${-annual_net:,.0f}/year — ${realized_ltv:.2f}/install beats CPI ${effective_cpi:.2f} but overhead crushes the margin (fully-loaded ${fully_loaded_cpi:.2f}/install)"
+            elif annual_net < total_ops * 0.3:
+                status = "thin"
+                message = f"Thin — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)"
             else:
-                status, message = "healthy", f"Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)"
+                status = "healthy"
+                message = f"Healthy — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)"
         else:
             daily_margin = avg_daily_rev - avg_daily_cost
             if daily_margin < 0:

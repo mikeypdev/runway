@@ -1126,21 +1126,34 @@ class WebGameTUI(App):
         )
 
         effective_cpi = self.engine._compute_effective_cpi_for_diagnosis()
-        realized_ratio = realized_ltv / effective_cpi if effective_cpi > 0 else float("inf")
-        realized_margin = realized_ltv - effective_cpi
+        total_revenue = sum(d["accrued_rev"] for d in timeline_data)
+        total_ops = sum(d["ops_cost"] for d in timeline_data)
+        total_new_users = sum(d["new_users"] for d in timeline_data)
+        annual_net = total_revenue - total_ops
+        fully_loaded_cpi = total_ops / total_new_users if total_new_users > 0 else float("inf")
         if self.engine.external_ua_spend > 0:
-            if realized_ratio < 1.0:
+            if annual_net < 0:
+                if realized_ltv < effective_cpi:
+                    diagnosis = (
+                        f" [bold red]⚠ Losing ${-annual_net:,.0f}/year "
+                        f"— realized ${realized_ltv:.2f}/install can't cover CPI ${effective_cpi:.2f}[/]"
+                    )
+                else:
+                    diagnosis = (
+                        f" [bold red]⚠ Losing ${-annual_net:,.0f}/year "
+                        f"— ${realized_ltv:.2f}/install beats CPI ${effective_cpi:.2f} but overhead crushes the margin "
+                        f"(fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
+                    )
+            elif annual_net < total_ops * 0.3:
                 diagnosis = (
-                    f" [bold red]⚠ Losing ${-realized_margin:.2f}/install "
-                    f"— realized ${realized_ltv:.2f} can't cover CPI ${effective_cpi:.2f}[/]"
-                )
-            elif realized_ratio < 3.0:
-                diagnosis = (
-                    f" [yellow]Profitable but thin — ${realized_margin:.2f}/install "
-                    f"margin over CPI ${effective_cpi:.2f} (realized {realized_ratio:.1f}×)[/]"
+                    f" [yellow]Thin — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install "
+                    f"vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
                 )
             else:
-                diagnosis = f" [green]✓ Healthy — ${realized_margin:.2f}/install margin (realized {realized_ratio:.1f}× CPI)[/]"
+                diagnosis = (
+                    f" [green]✓ Healthy — ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/install "
+                    f"vs CPI ${effective_cpi:.2f} (fully-loaded ${fully_loaded_cpi:.2f}/install)[/]"
+                )
         else:
             daily_rows = timeline_data[:30]
             avg_rev = sum(d["accrued_rev"] for d in daily_rows) / len(daily_rows)

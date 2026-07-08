@@ -75,6 +75,8 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
         "realized_ltv_cpi_ratio": 2.2,  # Realized LTV / effective CPI (drives diagnosis)
         "margin_per_install": 0.56,     # Analytical LTV - CPI
         "realized_margin_per_install": 0.28,  # Realized LTV - CPI
+        "fully_loaded_cpi": 1.61,     # Total cost per install (UA + overhead + server)
+        "annual_net": 2968.0,        # Total revenue - total costs for the year
         "peak_dau": 797,          # "total_installs" for premium, "peak_subs" for subscription
         "total_revenue": 7200.0,  # 365-day accrued revenue
         "final_bank": -81.0,      # Year-end bank balance
@@ -82,7 +84,7 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
     },
     "diagnosis": {
         "status": "thin",         # "healthy" | "thin" | "losing"
-        "message": "Profitable but thin — $0.28/install margin (realized 2.2× CPI)",
+        "message": "Thin — +$2,968/year margin, realized $2.00/install vs CPI $0.78 (fully-loaded $1.61/install)",
     },
     "breakdown": {
         "description": "Lifetime 21 days, 3% payers",
@@ -135,7 +137,7 @@ web.sensitivity("base_rpm", [0.50, 1.0, 2.0, 3.0])
 
 ### Diagnosis Modes
 
-- **Paid UA** (external_ua_spend > 0): Uses **realized LTV** (actual 365-day revenue per install) vs effective CPI margin. The analytical `ltv` assumes each install gets its full retention lifetime; `realized_ltv` accounts for cohorts arriving throughout the year whose revenue is truncated by the 365-day window.
+- **Paid UA** (external_ua_spend > 0): Uses **annual net** (total revenue − total operating costs) for status. The message shows per-install economics (realized LTV vs CPI vs fully-loaded CPI) to explain *why* the business is healthy, thin, or losing. When per-install economics are positive but the business still loses money, the message flags that overhead crushes the margin.
 - **Organic-only** (external_ua_spend = 0): Uses daily revenue vs daily costs (overhead + server + CDN), since CPI is not applicable.
 
 ### Evaluate Result Structure
