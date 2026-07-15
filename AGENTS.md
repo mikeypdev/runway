@@ -6,16 +6,19 @@ Two Textual TUI applications that model game financial runways over 12 months. E
 
 - **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, Remove Ads, and Subscription business models with CPI-based UA, ARPPU monetization, ad revenue, and recurring subscriptions.
 - **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social App Mini Game, Custom Web) with session-based ad impressions and CDN costs.
+- **`pc_runway.py`** — PC game simulator (Steam/itch.io). Models event-driven sales: launch wishlist conversions, decaying organic sales, periodic sale-event spikes, DLC releases, and refund rates. Uses a sales curve instead of cohort-based DAU retention.
 
-For **analysis, comparison, or evaluation** tasks, **`AGENT_API.md`** documents the programmatic API (`api.py`) — the preferred interface for running simulations without the TUI. For **model development** (fixing bugs, adding features), edit the engines directly (`runway.py`, `web_runway.py`).
+For **analysis, comparison, or evaluation** tasks, **`AGENT_API.md`** documents the programmatic API (`api.py`) — the preferred interface for running simulations without the TUI. For **model development** (fixing bugs, adding features), edit the engines directly (`runway.py`, `web_runway.py`, `pc_runway.py`).
 
 ## Running
 
 ```bash
 ./runway.sh        # mobile game simulator (cd's to project dir, runs via venv)
 ./web_runway.sh    # web game simulator
+./pc_runway.sh     # PC game simulator (Steam/itch.io)
 .venv/bin/python runway.py       # direct
 .venv/bin/python web_runway.py   # direct
+.venv/bin/python pc_runway.py    # direct
 ```
 
 ## Documentation Maintenance
@@ -42,11 +45,17 @@ Both apps share the same structural pattern. Each is a single file:
 - **`WebGameEngine`** — Simulation engine for RPM-based web game economics. Models organic/paid plays, session-based ad impressions, fill rate, portal rev-shares, IAP, CDN costs, and viral spread. Includes LTV breakdown logic.
 - **`WebGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Portal Comparison" (same params across all four portals), and "Target Solver" (with LTV breakdown). KPI bar includes a health diagnosis line that uses daily cash-flow sustainability for organic-only scenarios and LTV-vs-CPI for paid UA.
 
+**`pc_runway.py`** (~1400 lines):
+
+- **`ScenarioStore`** — JSON-backed (`pc_scenarios.json`) CRUD. Auto-seeds 4 built-in scenarios.
+- **`PCGameEngine`** — Simulation engine for PC game economics. Models event-driven sales: launch wishlist conversions with spike multiplier, power-law decay tail, periodic sale-event bumps (unit multiplier + price discount), DLC releases (attach rate against cumulative owners), marketing-driven sales (cost-per-sale), refund rates, and platform fees. Does NOT use cohort-based retention — each sale is a one-time transaction. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
+- **`PCGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Platform Comparison" (same params across Steam/itch.io/Both), and "Target Solver" (with per-unit revenue breakdown). KPI bar shows LTV/unit, CPS, total units, and year-end bank with health diagnosis.
+
 `EXPOSED_PARAMS` in each file is the single source of truth linking engine attributes ↔ widget IDs ↔ type cast functions. Both `action_recalculate()` and `_load_scenario()` iterate over it generically — no per-field boilerplate.
 
-**`api.py`** (~850 lines):
+**`api.py`** (~1300 lines):
 
-- **`MobileGameAPI`** and **`WebGameAPI`** — Agent-friendly programmatic wrappers around the engines. No TUI or Textual dependency required. Provides `evaluate()` (full simulation + structured results), `sensitivity()` (parameter sweeps), `solve()` (goal-seeking), `list_models()`, `parameter_schema()`, and `default_scenario()`. See **`AGENT_API.md`** for agent-facing documentation.
+- **`MobileGameAPI`**, **`WebGameAPI`**, and **`PCGameAPI`** — Agent-friendly programmatic wrappers around the engines. No TUI or Textual dependency required. Provides `evaluate()` (full simulation + structured results), `sensitivity()` (parameter sweeps), `solve()` (goal-seeking), `list_models()`/`list_portals()`/`list_platforms()`, `parameter_schema()`, and `default_scenario()`. See **`AGENT_API.md`** for agent-facing documentation.
 
 ## Key Patterns
 

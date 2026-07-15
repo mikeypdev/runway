@@ -4,7 +4,7 @@ Provides a clean, agent-friendly interface to the mobile and web game
 simulation engines. No TUI or Textual dependencies required.
 
 Usage:
-    from api import MobileGameAPI, WebGameAPI
+    from api import MobileGameAPI, WebGameAPI, PCGameAPI
 
     # Discover available models and parameters
     MobileGameAPI.list_models()
@@ -18,6 +18,10 @@ Usage:
     for price in [0.99, 2.99, 4.99]:
         api = MobileGameAPI({"model_type": "premium", "game_price": price})
         print(price, api.evaluate()["summary"]["final_bank"])
+
+    # PC game (Steam/itch.io)
+    api = PCGameAPI({"platform": "Steam", "game_price": 14.99})
+    result = api.evaluate()
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from typing import Any
 
 import runway
 import web_runway
+import pc_runway
 
 # ---------------------------------------------------------------------------
 # Mobile Game API
@@ -863,6 +868,359 @@ class WebGameAPI:
 
 
 # ---------------------------------------------------------------------------
+# PC Game API
+# ---------------------------------------------------------------------------
+
+PC_PLATFORMS = [
+    {"id": "Steam", "platform_fee": 30.0, "payout_delay": 30,
+     "description": "Steam store. 30% platform fee, 30-day payout delay. Largest PC audience."},
+    {"id": "itch.io", "platform_fee": 10.0, "payout_delay": 15,
+     "description": "itch.io. 10% developer-chosen fee, 15-day payout. Smaller, indie-friendly audience."},
+    {"id": "Both", "platform_fee": 27.0, "payout_delay": 30,
+     "description": "Dual-channel release (Steam primary + itch.io). Blended ~27% fee."},
+]
+
+PC_PARAMETERS = [
+    # --- Platform ---
+    {
+        "name": "platform", "label": "Publish Platform", "type": "choice",
+        "default": "Steam", "options": ["Steam", "itch.io", "Both"],
+        "description": "Distribution platform. Sets default platform fee and payout delay.",
+    },
+
+    # --- Launch & capital ---
+    {
+        "name": "start_date", "label": "Start Date", "type": "date",
+        "default": "today", "format": "YYYY-MM-DD",
+        "description": "Day 1 of the simulation (launch day).",
+    },
+    {
+        "name": "starting_capital", "label": "Starting Capital ($)", "type": "float",
+        "default": 5000.0, "min": 0.0,
+        "description": "Initial bank balance before day 1.",
+    },
+
+    # --- Pricing & fees ---
+    {
+        "name": "game_price", "label": "Game Price ($)", "type": "float",
+        "default": 14.99, "min": 0.0,
+        "description": "Base game price. Discounted during sale events.",
+    },
+    {
+        "name": "platform_fee_pct", "label": "Platform Fee (%)", "type": "float",
+        "default": 30.0, "min": 0.0, "max": 50.0,
+        "description": "Store/platform revenue share (Steam: 30%, itch.io: 10%).",
+    },
+    {
+        "name": "refund_rate", "label": "Refund Rate (%)", "type": "float",
+        "default": 12.0, "min": 0.0, "max": 50.0,
+        "description": "Percentage of sales refunded (Steam: ~10-15%, itch.io: ~5%).",
+    },
+    {
+        "name": "vat_rate", "label": "VAT / Sales Tax (%)", "type": "float",
+        "default": 8.0, "min": 0.0, "max": 30.0,
+        "description": "Inclusive VAT/sales tax collected by the platform. Reduces gross revenue before platform fee. Average ~8% (EU 20%, US <1%).",
+    },
+    {
+        "name": "regional_pricing_pct", "label": "Regional Pricing (% of list)", "type": "float",
+        "default": 85.0, "min": 50.0, "max": 100.0,
+        "description": "Effective average price received after regional pricing adjustments. Lower for audiences in South America, Southeast Asia, etc. Typically 80-90%.",
+    },
+
+    # --- Wishlist & launch ---
+    {
+        "name": "pre_launch_wishlists", "label": "Pre-Launch Wishlists", "type": "float",
+        "default": 15000, "min": 0.0,
+        "description": "Wishlist count at launch. Drives the launch spike via conversion rate.",
+    },
+    {
+        "name": "launch_conversion_rate", "label": "Launch Conversion (%)", "type": "float",
+        "default": 20.0, "min": 0.0, "max": 100.0,
+        "description": "Percentage of wishlists that convert to sales during the launch spike.",
+    },
+    {
+        "name": "launch_spike_duration", "label": "Launch Spike Duration (days)", "type": "int",
+        "default": 14, "min": 0,
+        "description": "Number of days the launch spike lasts.",
+    },
+    {
+        "name": "launch_spike_multiplier", "label": "Launch Spike Multiplier", "type": "float",
+        "default": 3.0, "min": 0.0,
+        "description": "Multiplier applied to wishlist-derived units during the launch spike.",
+    },
+
+    # --- Sales pattern ---
+    {
+        "name": "base_daily_sales", "label": "Base Daily Sales", "type": "float",
+        "default": 25.0, "min": 0.0,
+        "description": "Steady-state daily organic sales (post-launch, pre-decay). Decays over time.",
+    },
+    {
+        "name": "sales_decay_exponent", "label": "Sales Decay Exponent", "type": "float",
+        "default": 0.45, "min": 0.0, "max": 2.0,
+        "description": "Power-law decay rate for daily sales. Higher = faster drop-off.",
+    },
+    {
+        "name": "sale_event_frequency", "label": "Sale Event Frequency (days)", "type": "int",
+        "default": 90, "min": 0,
+        "description": "Days between sale events (Steam sales, etc.). 0 = no sale events.",
+    },
+    {
+        "name": "sale_event_duration", "label": "Sale Event Duration (days)", "type": "int",
+        "default": 7, "min": 0,
+        "description": "Duration of each sale event in days.",
+    },
+    {
+        "name": "sale_event_multiplier", "label": "Sale Event Multiplier", "type": "float",
+        "default": 4.0, "min": 1.0,
+        "description": "Unit sales multiplier during sale events.",
+    },
+    {
+        "name": "sale_discount_pct", "label": "Sale Discount (%)", "type": "float",
+        "default": 35.0, "min": 0.0, "max": 90.0,
+        "description": "Price discount applied during sale events.",
+    },
+
+    # --- Marketing ---
+    {
+        "name": "daily_marketing_spend", "label": "Daily Marketing Spend ($)", "type": "float",
+        "default": 20.0, "min": 0.0,
+        "description": "Daily marketing budget (ads, creators, PR). Drives additional sales at cost_per_sale.",
+    },
+    {
+        "name": "cost_per_sale", "label": "Cost Per Sale ($)", "type": "float",
+        "default": 3.00, "min": 0.01,
+        "description": "Marketing cost to drive one additional sale. Equivalent to CPI for PC.",
+    },
+
+    # --- DLC ---
+    {
+        "name": "dlc_price", "label": "DLC Price ($)", "type": "float",
+        "default": 0.0, "min": 0.0,
+        "description": "Price of each DLC. Only active when dlc_count > 0.",
+    },
+    {
+        "name": "dlc_count", "label": "DLC Count", "type": "int",
+        "default": 0, "min": 0,
+        "description": "Number of DLCs to release during the 12-month period.",
+    },
+    {
+        "name": "dlc_release_interval", "label": "DLC Release Interval (days)", "type": "int",
+        "default": 120, "min": 1,
+        "description": "Days between DLC releases. First DLC at this many days after launch.",
+    },
+    {
+        "name": "dlc_attach_rate", "label": "DLC Attach Rate (%)", "type": "float",
+        "default": 0.0, "min": 0.0, "max": 100.0,
+        "description": "Percentage of cumulative base game owners who buy each DLC.",
+    },
+
+    # --- Costs & payout ---
+    {
+        "name": "fixed_overhead_daily", "label": "Fixed Daily Overhead ($)", "type": "float",
+        "default": 30.0, "min": 0.0,
+        "description": "Fixed daily costs (studio, tools, living expenses).",
+    },
+    {
+        "name": "server_cost_per_k_players", "label": "Server Cost per 1k Players ($)", "type": "float",
+        "default": 0.05, "min": 0.0,
+        "description": "Infrastructure cost scaling with daily players (leaderboards, updates, etc.).",
+    },
+    {
+        "name": "payout_delay_days", "label": "Payout Delay (days)", "type": "int",
+        "default": 30, "min": 0,
+        "description": "Days between revenue accrual and cash receipt from the platform.",
+    },
+]
+
+
+class PCGameAPI:
+    """Agent-friendly API for the PC game financial simulator."""
+
+    ENGINE = pc_runway.PCGameEngine
+    DEFAULT_SCENARIOS = pc_runway.DEFAULT_SCENARIOS
+    PLATFORMS = PC_PLATFORMS
+    PARAMETERS = PC_PARAMETERS
+
+    def __init__(self, params: dict | None = None):
+        """Create a simulation from a parameter dict.
+
+        Missing parameters use engine defaults. Call parameter_schema()
+        or list_platforms() to discover available parameters.
+        """
+        self.engine = pc_runway.PCGameEngine()
+        if params:
+            self.engine.apply_params(params)
+
+    @classmethod
+    def list_platforms(cls) -> list[dict]:
+        """Return available PC platforms with their default economics."""
+        return cls.PLATFORMS.copy()
+
+    @classmethod
+    def parameter_schema(cls) -> list[dict]:
+        """Return parameter metadata for all PC game parameters."""
+        return cls.PARAMETERS.copy()
+
+    @classmethod
+    def default_scenario(cls, platform: str = "Steam") -> dict:
+        """Return a default parameter dict for the given platform."""
+        for scenario in cls.DEFAULT_SCENARIOS.values():
+            if scenario.get("platform") == platform:
+                return dict(scenario)
+        return {"platform": platform}
+
+    @classmethod
+    def list_default_scenarios(cls) -> dict[str, dict]:
+        """Return all built-in default scenarios."""
+        return dict(cls.DEFAULT_SCENARIOS)
+
+    def evaluate(self) -> dict:
+        """Run the full 365-day simulation and return structured results.
+
+        Returns a dict with:
+            summary: key metrics (ltv, realized_ltv, cps, revenue, bank, etc.)
+            diagnosis: health status and human-readable message
+            breakdown: structured per-unit revenue decomposition
+            timeline: 90 daily rows + 9 monthly summaries
+        """
+        timeline = self.engine.calculate_timeline()
+        summary_raw = self.engine.summarize_timeline(timeline, self.engine.starting_capital)
+
+        ltv = self.engine.calculate_ltv()
+        realized_ltv = self.engine.get_realized_ltv()
+        effective_cps = self.engine._compute_effective_cpi_for_diagnosis()
+        ratio = self.engine.calculate_ltv_cpi_ratio()
+
+        total_revenue = sum(d["accrued_rev"] for d in timeline)
+        total_ops = sum(d["ops_cost"] for d in timeline)
+        total_units = summary_raw["total_units"]
+        annual_net = total_revenue - total_ops
+        fully_loaded_cps = total_ops / total_units if total_units > 0 else float("inf")
+
+        if annual_net < 0:
+            if realized_ltv < effective_cps:
+                status = "losing"
+                message = f"Losing ${-annual_net:,.0f}/year - realized ${realized_ltv:.2f}/unit can't cover CPS ${effective_cps:.2f}"
+            else:
+                status = "losing"
+                message = f"Losing ${-annual_net:,.0f}/year - ${realized_ltv:.2f}/unit beats CPS ${effective_cps:.2f} but overhead crushes the margin (fully-loaded ${fully_loaded_cps:.2f}/unit)"
+        elif annual_net < total_ops * 0.3:
+            status = "thin"
+            message = f"Thin - ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/unit vs CPS ${effective_cps:.2f} (fully-loaded ${fully_loaded_cps:.2f}/unit)"
+        else:
+            status = "healthy"
+            message = f"Healthy - ${annual_net:+,.0f}/year margin, realized ${realized_ltv:.2f}/unit vs CPS ${effective_cps:.2f} (fully-loaded ${fully_loaded_cps:.2f}/unit)"
+
+        return {
+            "summary": {
+                "platform": self.engine.platform,
+                "ltv": round(ltv, 4),
+                "realized_ltv": round(realized_ltv, 4),
+                "effective_cps": round(effective_cps, 4),
+                "ltv_cps_ratio": round(ratio, 4) if self.engine.daily_marketing_spend > 0 else None,
+                "annual_net": round(annual_net, 2),
+                "fully_loaded_cps": round(fully_loaded_cps, 4),
+                "total_revenue": round(summary_raw["total_accrued"], 2),
+                "total_units": summary_raw["total_units"],
+                "total_dlc_units": summary_raw["total_dlc_units"],
+                "peak_daily_units": summary_raw["peak_daily_units"],
+                "final_bank": round(summary_raw["final_bank"], 2),
+                "break_even_day": summary_raw["break_even_day"],
+            },
+            "diagnosis": {
+                "status": status,
+                "message": message,
+            },
+            "breakdown": self._structured_breakdown(ltv, effective_cps),
+            "timeline": timeline,
+        }
+
+    def _structured_breakdown(self, ltv: float, cps: float) -> dict:
+        """Return structured per-unit revenue decomposition."""
+        net_factor = self.engine._net_revenue_factor()
+        after_regional = self.engine.game_price * (self.engine.regional_pricing_pct / 100.0)
+
+        components: dict[str, Any] = {
+            "game_price": self.engine.game_price,
+            "regional_pricing_pct": self.engine.regional_pricing_pct,
+            "vat_rate": self.engine.vat_rate,
+            "platform_fee_pct": self.engine.platform_fee_pct,
+            "refund_rate": self.engine.refund_rate,
+            "after_regional_pricing": round(after_regional, 4),
+            "net_factor": round(net_factor, 4),
+            "base_revenue_per_unit": round(self.engine.game_price * net_factor, 4),
+        }
+
+        if self.engine.dlc_count > 0 and self.engine.dlc_price > 0 and self.engine.dlc_attach_rate > 0:
+            dlc_net = self.engine.dlc_count * self.engine.dlc_price * (self.engine.dlc_attach_rate / 100.0) * net_factor
+            components["dlc_count"] = self.engine.dlc_count
+            components["dlc_price"] = self.engine.dlc_price
+            components["dlc_attach_rate"] = self.engine.dlc_attach_rate / 100.0
+            components["dlc_revenue_per_unit"] = round(dlc_net, 4)
+
+        return {
+            "components": components,
+            "total_ltv": round(ltv, 4),
+            "effective_cps": round(cps, 4),
+            "margin_per_unit": round(ltv - cps, 4),
+        }
+
+    def sensitivity(self, param: str, values: list[float] | None = None) -> list[dict]:
+        """Sweep a parameter across multiple values and return summaries.
+
+        If values is None and param is 'daily_marketing_spend', uses
+        default multipliers [0, 0.25, 0.5, 1.0, 2.0, 4.0].
+        """
+        orig = getattr(self.engine, param)
+        if values is None:
+            if param == "daily_marketing_spend":
+                values = [max(0.0, orig * m) for m in [0.0, 0.25, 0.5, 1.0, 2.0, 4.0]]
+            else:
+                values = [max(0.01, orig * m) for m in [0.25, 0.5, 1.0, 1.5, 2.0, 3.0]]
+
+        results = []
+        try:
+            for v in values:
+                setattr(self.engine, param, v)
+                timeline = self.engine.calculate_timeline()
+                summary = self.engine.summarize_timeline(timeline, self.engine.starting_capital)
+                ltv = self.engine.calculate_ltv()
+                ratio = self.engine.calculate_ltv_cpi_ratio()
+                results.append({
+                    param: v,
+                    "ltv": round(ltv, 4),
+                    "ltv_cps_ratio": round(ratio, 4) if self.engine.daily_marketing_spend > 0 else None,
+                    "total_revenue": round(summary["total_accrued"], 2),
+                    "total_units": summary["total_units"],
+                    "final_bank": round(summary["final_bank"], 2),
+                    "break_even_day": summary["break_even_day"],
+                })
+        finally:
+            setattr(self.engine, param, orig)
+        return results
+
+    def solve(self, param: str, target_metric: str, target_value: float,
+              low: float = 0.01, high: float = 100.0) -> dict | None:
+        """Find the value of param that achieves target_value for target_metric.
+
+        target_metric can be "final_bank" or "ltv_cps_ratio".
+        """
+        target_fn = {
+            "final_bank": self.engine.get_final_bank,
+            "ltv_cps_ratio": self.engine.get_ltv_cpi,
+        }.get(target_metric)
+
+        if target_fn is None:
+            raise ValueError(f"Unknown target_metric '{target_metric}'. Use 'final_bank' or 'ltv_cps_ratio'.")
+
+        result = self.engine.solve_parameter(param, target_fn, target_value, low, high)
+        if result is None:
+            return None
+        return {"param": param, "value": result, "target_metric": target_metric, "target_value": target_value}
+
+
+# ---------------------------------------------------------------------------
 # Convenience: compare multiple scenarios
 # ---------------------------------------------------------------------------
 
@@ -905,6 +1263,26 @@ def compare_web_scenarios(scenarios: dict[str, dict]) -> list[dict]:
             "ltv": eval_result["summary"]["ltv"],
             "realized_ltv": eval_result["summary"]["realized_ltv"],
             "total_revenue": eval_result["summary"]["total_revenue"],
+            "final_bank": eval_result["summary"]["final_bank"],
+            "break_even_day": eval_result["summary"]["break_even_day"],
+            "diagnosis": eval_result["diagnosis"]["status"],
+        })
+    return results
+
+
+def compare_pc_scenarios(scenarios: dict[str, dict]) -> list[dict]:
+    """Run multiple PC game scenarios and return a comparison table."""
+    results = []
+    for name, params in scenarios.items():
+        api = PCGameAPI(params)
+        eval_result = api.evaluate()
+        results.append({
+            "name": name,
+            "platform": eval_result["summary"]["platform"],
+            "ltv": eval_result["summary"]["ltv"],
+            "realized_ltv": eval_result["summary"]["realized_ltv"],
+            "total_revenue": eval_result["summary"]["total_revenue"],
+            "total_units": eval_result["summary"]["total_units"],
             "final_bank": eval_result["summary"]["final_bank"],
             "break_even_day": eval_result["summary"]["break_even_day"],
             "diagnosis": eval_result["diagnosis"]["status"],

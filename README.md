@@ -2,7 +2,7 @@
 
 Interactive terminal UIs for modeling a game's 12-month financial runway.
 
-The repo contains **two independent simulators** — one for mobile games, one for web games — sharing the same Textual TUI framework and overall architecture.
+The repo contains **three independent simulators** — mobile games, web games, and PC games (Steam/itch.io) — sharing the same Textual TUI framework and overall architecture.
 
 ## What it does
 
@@ -37,13 +37,14 @@ python3.14 -m venv .venv
 
 ./runway.sh        # mobile game simulator
 ./web_runway.sh    # web game simulator
+./pc_runway.sh     # PC game simulator (Steam/itch.io)
 ```
 
 Requires Python 3.14 and the dependencies listed in `requirements.txt` (`textual`, `rich`).
 
 ## Programmatic API
 
-Both engines can be used without the TUI via `api.py`. This is useful for AI agents, batch analysis, and automated modeling:
+All three engines can be used without the TUI via `api.py`. This is useful for AI agents, batch analysis, and automated modeling:
 
 ```python
 from api import MobileGameAPI
@@ -59,6 +60,11 @@ print(result["diagnosis"]["message"])
 
 # Goal-seeking: find the breakeven CPI
 api.solve("cpi", "final_bank", 0.0, low=0.01, high=5.0)
+
+# PC game (Steam/itch.io)
+from api import PCGameAPI
+pc = PCGameAPI({"platform": "Steam", "game_price": 14.99})
+result = pc.evaluate()  # → summary, diagnosis, breakdown, timeline
 ```
 
 See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patterns.
@@ -128,9 +134,41 @@ See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patt
 | | CDN Cost per 1k Plays | Bandwidth cost scaling with plays |
 | | Payout Delay (Days) | Days before accrued revenue settles as cash |
 
+### PC Game (`pc_runway.py`)
+
+| Section | Parameter | What it controls |
+|---|---|---|
+| **Launch & Capital** | Start Date | Day 1 of the simulation (launch day) |
+| | Starting Capital | Initial bank balance before day 1 |
+| | Game Price | Base game price (discounted during sales) |
+| | Platform Fee (%) | Store revenue share (Steam: 30%, itch.io: 10%) |
+| | Refund Rate (%) | Percentage of sales refunded |
+| | VAT / Sales Tax (%) | Inclusive tax extracted from gross revenue (avg ~13%) |
+| | Regional Pricing (% of list) | Effective avg price after regional pricing (typically 80-90%) |
+| **Platform** | Publish Platform | Steam, itch.io, or Both |
+| **Wishlist & Launch** | Pre-Launch Wishlists | Wishlist count at launch (drives launch spike) |
+| | Launch Conversion (%) | Percentage of wishlists that convert during launch |
+| | Launch Spike Duration | Days the launch spike lasts |
+| | Launch Spike Multiplier | Multiplier on wishlist-derived units |
+| **Sales Pattern** | Base Daily Sales | Steady-state daily organic sales (post-launch) |
+| | Sales Decay Exponent | Power-law decay rate for daily sales |
+| | Sale Event Frequency | Days between sale events (0 = no sales) |
+| | Sale Event Duration | Duration of each sale event |
+| | Sale Event Multiplier | Unit multiplier during sale events |
+| | Sale Discount (%) | Price discount during sale events |
+| **DLC** *(when DLC Count > 0)* | DLC Price | Price of each DLC |
+| | DLC Count | Number of DLCs to release |
+| | DLC Release Interval | Days between DLC releases |
+| | DLC Attach Rate (%) | Percentage of owners who buy each DLC |
+| **Marketing** | Daily Marketing Spend | Daily marketing budget |
+| | Cost Per Sale | Marketing cost per additional sale |
+| **Costs & Payout** | Fixed Daily Overhead | Baseline daily operating cost |
+| | Server Cost per 1k Players | Infrastructure cost scaling with players |
+| | Payout Delay (Days) | Days before revenue settles as cash |
+
 ## Key bindings
 
-Both apps share the same bindings:
+All apps share the same bindings:
 
 - `ctrl+r` — Recalculate / refresh
 - `ctrl+q` — Quit
@@ -155,6 +193,13 @@ Both apps share the same bindings:
 - **Portal Comparison** — Same parameters run across all four portal types
 - **Target Solver** — Find RPM, D1 retention, or sessions/day needed to meet goals, with a model-specific LTV breakdown showing how each revenue component contributes to per-install margin
 
+### PC Game
+
+- **12-Month Runway** — Timeline table with daily (90 days) + monthly summaries (units sold, DLC units, cumulative owners)
+- **Compare Scenarios** — Side-by-side summary metrics for saved scenarios
+- **Platform Comparison** — Same parameters run across Steam, itch.io, and Both
+- **Target Solver** — Find game price, launch conversion, or cost-per-sale needed to meet goals, with a per-unit revenue breakdown
+
 ## Scenarios
 
 Default scenarios ship with each model:
@@ -171,7 +216,13 @@ Default scenarios ship with each model:
 - **Social Mini Game** — Social App Mini Game, ad + IAP revenue
 - **Custom Web Direct** — Self-published, full IAP control
 
-Scenarios are saved to `scenarios.json` (mobile) or `web_scenarios.json` (web). Delete the file to reset to defaults.
+**PC (`pc_runway.py`):**
+- **Steam Indie $14.99** — Wishlist-driven Steam launch with seasonal sales
+- **itch.io Solo Dev $9.99** — Smaller audience, low platform fee, no sale events
+- **Steam Premium + DLC** — Higher price point with two DLC expansions
+- **Dual Channel** — Simultaneous Steam + itch.io release
+
+Scenarios are saved to `scenarios.json` (mobile), `web_scenarios.json` (web), or `pc_scenarios.json` (PC). Delete the file to reset to defaults.
 
 ## How it works
 
@@ -191,3 +242,11 @@ Cash inflow lags accrued revenue by the payout delay. Break-even is measured aga
 - Portal type sets default rev-share, RPM, organic plays, and whether IAP is supported
 
 CDN costs scale with plays; server costs scale with DAU. External UA drives paid installs alongside organic plays. Viral plays compound recursively via geometric series.
+
+**PC (`pc_runway.py`):**
+- **Sales curve:** Launch spike (wishlist conversions + organic traffic × multiplier) + power-law decay tail + periodic sale-event bumps (units × multiplier, price × discount)
+- **DLC revenue:** Released at intervals; each DLC sells to cumulative owners at an attach rate, with a normalized decay curve so total DLC units match the attach-rate pool
+- **Marketing:** Daily spend drives additional sales at cost-per-sale (analogous to CPI)
+- **Refunds:** Flat refund rate reduces net revenue proportionally
+
+Revenue is net of regional pricing, VAT (inclusive), refunds, and platform fee. Cash inflow lags accrued revenue by the payout delay. The PC engine does not use cohort-based retention — each sale is a one-time transaction.

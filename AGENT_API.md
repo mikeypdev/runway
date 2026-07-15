@@ -224,10 +224,105 @@ The web result shape differs from mobile. The `summary` adds `portal`, `total_pl
 
 > **Note:** `solve(..., "ltv_cpi_ratio", ...)` is meaningless for organic-only web scenarios where `effective_cpi` is null. Use `final_bank` as the target metric there.
 
+## PC Game API (`PCGameAPI`)
+
+Models PC games (Steam, itch.io, or dual-channel). Revenue is event-driven: launch wishlist conversions, decaying organic sales, periodic sale-event spikes (Steam sales), and optional DLC releases. There is no DAU/retention model — each sale is a one-time transaction.
+
+### Platforms
+
+| Platform | Fee | Payout Delay | Description |
+|---|---|---|---|
+| Steam | 30% | 30 days | Largest PC audience, seasonal sale events |
+| itch.io | 10% | 15 days | Indie-friendly, smaller audience, fewer refunds |
+| Both | ~27% (blended) | 30 days | Dual-channel release |
+
+### Key Methods
+
+```python
+from api import PCGameAPI
+
+PCGameAPI.list_platforms()                    # → [{"id": "Steam", "platform_fee": 30.0, ...}, ...]
+PCGameAPI.parameter_schema()                  # → [{"name": "game_price", "type": "float", ...}, ...]
+PCGameAPI.default_scenario("Steam")           # → full params dict
+PCGameAPI.list_default_scenarios()            # → {"Steam Indie $14.99": {...}, ...}
+
+api = PCGameAPI({"platform": "Steam", "game_price": 19.99})
+api.evaluate()                                # → full simulation result
+api.sensitivity("daily_marketing_spend")      # → sweep results
+api.solve("game_price", "final_bank", 0.0)    # → breakeven price
+```
+
+### Evaluate Result Structure
+
+```python
+{
+    "summary": {
+        "platform": "Steam",
+        "ltv": 9.2321,             # analytical net revenue per unit (incl. DLC)
+        "realized_ltv": 9.1234,    # actual total_revenue / total_units from timeline
+        "effective_cps": 1.5789,   # marketing cost per sale (blended across all units)
+        "ltv_cps_ratio": 5.85,     # ltv / effective_cps (null if no marketing spend)
+        "annual_net": 81234.50,    # total_revenue - total_ops
+        "fully_loaded_cps": 2.10,  # total_ops / total_units
+        "total_revenue": 117342.00,
+        "total_units": 12746,
+        "total_dlc_units": 0,
+        "peak_daily_units": 832,
+        "final_bank": 101475.00,
+        "break_even_day": 30,      # first day bank >= starting_capital
+    },
+    "diagnosis": {
+        "status": "healthy",       # "healthy" | "thin" | "losing"
+        "message": "Healthy — ...",
+    },
+    "breakdown": {
+        "components": {
+            "game_price": 14.99,
+            "regional_pricing_pct": 85.0,
+            "vat_rate": 8.0,
+            "platform_fee_pct": 30.0,
+            "refund_rate": 12.0,
+            "after_regional_pricing": 12.7415,
+            "net_factor": 0.4376,   # regional × (1-vat) × (1-refund) × (1-fee)
+            "base_revenue_per_unit": 6.5593,
+            # when DLC is active:
+            "dlc_count": 2,
+            "dlc_price": 7.99,
+            "dlc_attach_rate": 0.15,
+            "dlc_revenue_per_unit": 1.0495,
+        },
+        "total_ltv": 9.2321,
+        "effective_cps": 1.5789,
+        "margin_per_unit": 7.6532,
+    },
+    "timeline": [ ... ],  # 90 daily rows + 9 monthly summaries
+}
+```
+
+### Sales Curve Model
+
+The PC engine uses an event-driven sales curve instead of cohort-based retention:
+
+- **Launch spike** (days 0 to `launch_spike_duration`): wishlist conversions at `pre_launch_wishlists * launch_conversion_rate / launch_spike_duration`, multiplied by `launch_spike_multiplier`, plus base daily sales.
+- **Decay tail**: `base_daily_sales * day^(-sales_decay_exponent)`, floored at 10% of base.
+- **Sale events**: every `sale_event_frequency` days for `sale_event_duration` days. Units multiply by `sale_event_multiplier`, price discounts by `sale_discount_pct`.
+- **DLC**: released at intervals of `dlc_release_interval` days. Each DLC sells to `cumulative_owners * dlc_attach_rate` over a decay curve.
+- **Marketing**: `daily_marketing_spend / cost_per_sale` additional units per day (analogous to CPI-driven UA).
+
+### Diagnosis Modes
+
+The health diagnosis uses annual net revenue vs total costs:
+
+- **Losing**: annual net < 0. Checks whether per-unit revenue covers marketing CPS or if overhead is the problem.
+- **Thin**: annual net < 30% of total ops cost.
+- **Healthy**: otherwise.
+
+When `daily_marketing_spend` is 0, `ltv_cps_ratio` is null and `effective_cps` falls back to the raw `cost_per_sale` parameter.
+
 ## Batch Comparison
 
 ```python
-from api import compare_mobile_scenarios, compare_web_scenarios
+from api import compare_mobile_scenarios, compare_web_scenarios, compare_pc_scenarios
 
 # Mobile
 mobile = {
@@ -245,9 +340,17 @@ web = {
 }
 for r in compare_web_scenarios(web):
     print(f"{r['name']:12s}  bank=${r['final_bank']:>8,.0f}  {r['diagnosis']}")
+
+# PC — includes `platform` and `total_units`
+pc = {
+    "Steam": {"platform": "Steam", "game_price": 14.99},
+    "itch": {"platform": "itch.io", "game_price": 9.99},
+}
+for r in compare_pc_scenarios(pc):
+    print(f"{r['name']:12s}  bank=${r['final_bank']:>8,.0f}  units={r['total_units']:>6,}  {r['diagnosis']}")
 ```
 
-Each result dict has `name`, then a subset of summary fields (`ltv`, `total_revenue`, `final_bank`, `break_even_day`) and a `diagnosis` status string. Mobile results also include `model_type` and `ltv_cpi_ratio`; web results include `portal`.
+Each result dict has `name`, then a subset of summary fields (`ltv`, `total_revenue`, `final_bank`, `break_even_day`) and a `diagnosis` status string. Mobile results also include `model_type` and `ltv_cpi_ratio`; web results include `portal`; PC results include `platform` and `total_units`.
 
 ## Modeling Limitations
 
