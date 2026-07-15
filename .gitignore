@@ -4,4 +4,5 @@ __pycache__/
 .venv/
 scenarios.json
 web_scenarios.json
+pc_scenarios.json
 .DS_Store
