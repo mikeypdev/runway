@@ -28,6 +28,15 @@ Models web games published on portals with RPM-based (revenue per 1000 plays) mo
 
 Includes a **portal comparison** tab that runs the same parameters across all four portals side-by-side, a **health diagnosis** line flagging per-install profitability at a glance, and a **target solver** that finds RPM, retention, or session values needed to hit goals with a model-specific **LTV breakdown** showing how each revenue component contributes.
 
+### PC Game Simulator (`pc_runway.py`)
+
+Models event-driven PC game sales on Steam and itch.io. Unlike the mobile and web simulators, the PC engine uses a **sales curve** (launch spike + power-law decay + periodic sale-event bumps) rather than cohort-based retention — each sale is a one-time transaction. Supports three platform configurations:
+- **Steam** — 30% platform fee, wishlist-driven launch spike, seasonal sale events
+- **itch.io** — 10% platform fee, smaller audience
+- **Both** — simultaneous Steam + itch.io release with incremental itch.io unit lift
+
+Includes **DLC revenue modeling** (recurring DLC releases at intervals with attach rates against cumulative owners), a **platform comparison** tab that runs the same parameters across Steam, itch.io, and Both side-by-side, a **health diagnosis** line flagging unit economics at a glance, and a **target solver** that finds game price, launch conversion, or cost-per-sale needed to hit goals with a per-unit revenue breakdown.
+
 ## Quick start
 
 ```bash
