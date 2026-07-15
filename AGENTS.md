@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two Textual TUI applications that model game financial runways over 12 months. Each is a standalone single-file Python app using the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
+Three Textual TUI applications that model game financial runways over 12 months. Each is a standalone single-file Python app using the [Textual](https://textual.textualize.io/) framework for an interactive terminal UI with a sidebar of tunable parameters, scenario management, and data tables showing daily (90 days) + monthly (months 4–12) projections.
 
 - **`runway.py`** — Mobile game simulator. Models F2P (IAP + Ads), Premium, Remove Ads, and Subscription business models with CPI-based UA, ARPPU monetization, ad revenue, and recurring subscriptions.
 - **`web_runway.py`** — Web game simulator. Models RPM-based monetization across four portal types (Web Portal, Playable Ads, Social App Mini Game, Custom Web) with session-based ad impressions and CDN costs.
@@ -23,7 +23,7 @@ For **analysis, comparison, or evaluation** tasks, **`AGENT_API.md`** documents 
 
 ## Documentation Maintenance
 
-**Keep `README.md` in sync with the code.** When you add, rename, or remove a parameter, tab, feature, or key binding in *either* app, update `README.md` in the same change. The parameters tables, tabs, and scenario lists are the most commonly stale sections.
+**Keep `README.md` in sync with the code.** When you add, rename, or remove a parameter, tab, feature, or key binding in *any* app, update `README.md` in the same change. The parameters tables, tabs, and scenario lists are the most commonly stale sections.
 
 No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key packages: `textual`, `rich`.
 
@@ -31,21 +31,21 @@ No build step. Dependencies are pre-installed in `.venv` (Python 3.14). Key pack
 
 ## Architecture
 
-Both apps share the same structural pattern. Each is a single file:
+All three apps share the same structural pattern. Each is a single file:
 
-**`runway.py`** (~1540 lines):
+**`runway.py`** (~1670 lines):
 
 - **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 4 built-in scenarios on first run.
 - **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, starting capital, auto-scaling UA, scaling OpEx, subscriber cohort tracking with churn, and billing period options. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
 - **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections (~30 inputs). Four tabs: "12-Month Runway" (timeline table with model-appropriate activity metric), "Compare Scenarios" (side-by-side summary metrics), "Spend Analysis" (sensitivity table), and "Target Solver" (goal-seeking with LTV breakdown). KPI bar includes a health diagnosis line that flags per-install profitability issues.
 
-**`web_runway.py`** (~1400 lines):
+**`web_runway.py`** (~1500 lines):
 
 - **`ScenarioStore`** — JSON-backed (`web_scenarios.json`) CRUD. Auto-seeds 4 built-in scenarios.
 - **`WebGameEngine`** — Simulation engine for RPM-based web game economics. Models organic/paid plays, session-based ad impressions, fill rate, portal rev-shares, IAP, CDN costs, and viral spread. Includes LTV breakdown logic.
 - **`WebGameTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections. Four tabs: "12-Month Runway", "Compare Scenarios", "Portal Comparison" (same params across all four portals), and "Target Solver" (with LTV breakdown). KPI bar includes a health diagnosis line that uses daily cash-flow sustainability for organic-only scenarios and LTV-vs-CPI for paid UA.
 
-**`pc_runway.py`** (~1400 lines):
+**`pc_runway.py`** (~1450 lines):
 
 - **`ScenarioStore`** — JSON-backed (`pc_scenarios.json`) CRUD. Auto-seeds 4 built-in scenarios.
 - **`PCGameEngine`** — Simulation engine for PC game economics. Models event-driven sales: launch wishlist conversions with spike multiplier, power-law decay tail, periodic sale-event bumps (unit multiplier + price discount), DLC releases (attach rate against cumulative owners), marketing-driven sales (cost-per-sale), refund rates, and platform fees. Does NOT use cohort-based retention — each sale is a one-time transaction. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.

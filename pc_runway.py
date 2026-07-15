@@ -24,13 +24,13 @@ PC_SCENARIOS_FILE = Path("pc_scenarios.json")
 
 PLATFORMS = {
     "Steam": {
-        "platform_fee": 30.0, "payout_delay": 30,
+        "platform_fee": 30.0, "payout_delay": 30, "itch_share": 0.0,
     },
     "itch.io": {
-        "platform_fee": 10.0, "payout_delay": 15,
+        "platform_fee": 10.0, "payout_delay": 15, "itch_share": 0.0,
     },
     "Both": {
-        "platform_fee": 27.0, "payout_delay": 30,
+        "platform_fee": 27.0, "payout_delay": 30, "itch_share": 15.0,
     },
 }
 
@@ -40,6 +40,7 @@ EXPOSED_PARAMS = [
     ("game_price", "in_game_price", float),
     ("vat_rate", "in_vat", float),
     ("regional_pricing_pct", "in_regional", float),
+    ("itch_share_pct", "in_itch_share", float),
     ("pre_launch_wishlists", "in_wishlists", float),
     ("launch_conversion_rate", "in_launch_conv", float),
     ("launch_spike_duration", "in_launch_duration", int),
@@ -70,7 +71,7 @@ DEFAULT_SCENARIOS = {
         "platform": "Steam",
         "starting_capital": 5000.0,
         "game_price": 14.99, "platform_fee_pct": 30.0, "refund_rate": 12.0,
-        "vat_rate": 13.0, "regional_pricing_pct": 85.0,
+        "vat_rate": 13.0, "regional_pricing_pct": 85.0, "itch_share_pct": 0.0,
         "pre_launch_wishlists": 15000, "launch_conversion_rate": 20.0,
         "launch_spike_duration": 14, "launch_spike_multiplier": 3.0,
         "base_daily_sales": 25.0, "sales_decay_exponent": 0.45,
@@ -85,7 +86,7 @@ DEFAULT_SCENARIOS = {
         "platform": "itch.io",
         "starting_capital": 2000.0,
         "game_price": 9.99, "platform_fee_pct": 10.0, "refund_rate": 5.0,
-        "vat_rate": 13.0, "regional_pricing_pct": 85.0,
+        "vat_rate": 13.0, "regional_pricing_pct": 85.0, "itch_share_pct": 0.0,
         "pre_launch_wishlists": 3000, "launch_conversion_rate": 15.0,
         "launch_spike_duration": 7, "launch_spike_multiplier": 2.5,
         "base_daily_sales": 8.0, "sales_decay_exponent": 0.50,
@@ -100,7 +101,7 @@ DEFAULT_SCENARIOS = {
         "platform": "Steam",
         "starting_capital": 10000.0,
         "game_price": 19.99, "platform_fee_pct": 30.0, "refund_rate": 10.0,
-        "vat_rate": 13.0, "regional_pricing_pct": 85.0,
+        "vat_rate": 13.0, "regional_pricing_pct": 85.0, "itch_share_pct": 0.0,
         "pre_launch_wishlists": 20000, "launch_conversion_rate": 22.0,
         "launch_spike_duration": 14, "launch_spike_multiplier": 3.0,
         "base_daily_sales": 30.0, "sales_decay_exponent": 0.40,
@@ -114,15 +115,15 @@ DEFAULT_SCENARIOS = {
     "Dual Channel": {
         "platform": "Both",
         "starting_capital": 5000.0,
-        "game_price": 12.99, "platform_fee_pct": 27.0, "refund_rate": 10.0,
-        "vat_rate": 13.0, "regional_pricing_pct": 85.0,
-        "pre_launch_wishlists": 10000, "launch_conversion_rate": 18.0,
-        "launch_spike_duration": 10, "launch_spike_multiplier": 2.8,
-        "base_daily_sales": 20.0, "sales_decay_exponent": 0.45,
+        "game_price": 14.99, "platform_fee_pct": 27.0, "refund_rate": 12.0,
+        "vat_rate": 13.0, "regional_pricing_pct": 85.0, "itch_share_pct": 15.0,
+        "pre_launch_wishlists": 15000, "launch_conversion_rate": 20.0,
+        "launch_spike_duration": 14, "launch_spike_multiplier": 3.0,
+        "base_daily_sales": 25.0, "sales_decay_exponent": 0.45,
         "sale_event_frequency": 90, "sale_event_duration": 7,
-        "sale_event_multiplier": 3.5, "sale_discount_pct": 25.0,
-        "daily_marketing_spend": 15.0, "cost_per_sale": 2.50,
-        "dlc_price": 4.99, "dlc_count": 1, "dlc_release_interval": 150, "dlc_attach_rate": 10.0,
+        "sale_event_multiplier": 4.0, "sale_discount_pct": 35.0,
+        "daily_marketing_spend": 20.0, "cost_per_sale": 3.00,
+        "dlc_price": 0.0, "dlc_count": 0, "dlc_release_interval": 120, "dlc_attach_rate": 0.0,
         "payout_delay_days": 30,
         "fixed_overhead_daily": 30.0, "server_cost_per_k_players": 0.05,
     },
@@ -170,6 +171,7 @@ class PCGameEngine:
         self.refund_rate = 12.0
         self.vat_rate = 13.0
         self.regional_pricing_pct = 85.0
+        self.itch_share_pct = 0.0
 
         self.pre_launch_wishlists = 15000.0
         self.launch_conversion_rate = 20.0
@@ -372,6 +374,8 @@ class PCGameEngine:
                 if self.daily_marketing_spend > 0 else 0.0
             )
             base_units = organic_units + paid_units
+            if self.itch_share_pct > 0:
+                base_units *= (1.0 + self.itch_share_pct / 100.0)
             total_marketing_cost += self.daily_marketing_spend
             total_paid_units_acc += paid_units
             cumulative_owners += base_units
@@ -844,6 +848,7 @@ class PCGameTUI(App):
                         self.labeled_input("Refund Rate (%):", "in_refund_rate", self.engine.refund_rate),
                         self.labeled_input("VAT / Sales Tax (%):", "in_vat", self.engine.vat_rate),
                         self.labeled_input("Regional Pricing (% of list):", "in_regional", self.engine.regional_pricing_pct),
+                        self.labeled_input("itch.io Share (%):", "in_itch_share", self.engine.itch_share_pct),
                         collapsed=False,
                     )
                     yield from self.section(
@@ -937,6 +942,7 @@ class PCGameTUI(App):
                 "in_refund_rate": "Refund Rate",
                 "in_vat": "VAT / Sales Tax",
                 "in_regional": "Regional Pricing",
+                "in_itch_share": "itch.io Share",
                 "in_wishlists": "Pre-Launch Wishlists",
                 "in_launch_conv": "Launch Conversion",
                 "in_launch_duration": "Launch Spike Duration",
@@ -1277,6 +1283,7 @@ class PCGameTUI(App):
             tmp.platform = platform_name
             tmp.platform_fee_pct = defaults["platform_fee"]
             tmp.payout_delay_days = defaults["payout_delay"]
+            tmp.itch_share_pct = defaults["itch_share"]
 
             tl = tmp.calculate_timeline()
             summary = PCGameEngine.summarize_timeline(tl, tmp.starting_capital)
@@ -1422,8 +1429,10 @@ class PCGameTUI(App):
                 defaults = PLATFORMS.get(str(event.value), {})
                 self.engine.platform_fee_pct = defaults.get("platform_fee", 30.0)
                 self.engine.payout_delay_days = defaults.get("payout_delay", 30)
+                self.engine.itch_share_pct = defaults.get("itch_share", 0.0)
                 self.query_one("#in_platform_fee", Input).value = str(self.engine.platform_fee_pct)
                 self.query_one("#in_delay", Input).value = str(self.engine.payout_delay_days)
+                self.query_one("#in_itch_share", Input).value = str(self.engine.itch_share_pct)
             finally:
                 self._loading_scenario = False
             self.action_recalculate()

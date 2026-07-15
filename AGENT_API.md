@@ -1,6 +1,6 @@
 # Game Financial Runway API — Agent Guide
 
-This document describes the programmatic API for modeling mobile and web game financial runways. Both simulators model 365 days of game economics — user acquisition, retention cohorts, monetization, and operating costs — and return structured data for analysis.
+This document describes the programmatic API for modeling mobile, web, and PC game financial runways. All three simulators model 365 days of game economics — user acquisition, retention cohorts, monetization, and operating costs — and return structured data for analysis.
 
 No TUI or terminal interaction required. All methods return plain dicts and lists.
 
@@ -279,19 +279,19 @@ api.solve("game_price", "final_bank", 0.0)    # → breakeven price
         "components": {
             "game_price": 14.99,
             "regional_pricing_pct": 85.0,
-            "vat_rate": 8.0,
+            "vat_rate": 13.0,
             "platform_fee_pct": 30.0,
             "refund_rate": 12.0,
             "after_regional_pricing": 12.7415,
-            "net_factor": 0.4376,   # regional × (1-vat) × (1-refund) × (1-fee)
-            "base_revenue_per_unit": 6.5593,
+            "net_factor": 0.4634,   # regional / (1+vat) × (1-refund) × (1-fee)
+            "base_revenue_per_unit": 6.9458,
             # when DLC is active:
             "dlc_count": 2,
             "dlc_price": 7.99,
             "dlc_attach_rate": 0.15,
-            "dlc_revenue_per_unit": 1.0495,
+            "dlc_revenue_per_unit": 1.1107,
         },
-        "total_ltv": 9.2321,
+        "total_ltv": 8.0565,
         "effective_cps": 1.5789,
         "margin_per_unit": 7.6532,
     },

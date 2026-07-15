@@ -872,12 +872,12 @@ class WebGameAPI:
 # ---------------------------------------------------------------------------
 
 PC_PLATFORMS = [
-    {"id": "Steam", "platform_fee": 30.0, "payout_delay": 30,
+    {"id": "Steam", "platform_fee": 30.0, "payout_delay": 30, "itch_share": 0.0,
      "description": "Steam store. 30% platform fee, 30-day payout delay. Largest PC audience."},
-    {"id": "itch.io", "platform_fee": 10.0, "payout_delay": 15,
+    {"id": "itch.io", "platform_fee": 10.0, "payout_delay": 15, "itch_share": 0.0,
      "description": "itch.io. 10% developer-chosen fee, 15-day payout. Smaller, indie-friendly audience."},
-    {"id": "Both", "platform_fee": 27.0, "payout_delay": 30,
-     "description": "Dual-channel release (Steam primary + itch.io). Blended ~27% fee."},
+    {"id": "Both", "platform_fee": 27.0, "payout_delay": 30, "itch_share": 15.0,
+     "description": "Dual-channel release (Steam primary + itch.io). Blended ~27% fee, plus 15% incremental reach from itch.io's audience."},
 ]
 
 PC_PARAMETERS = [
@@ -918,13 +918,18 @@ PC_PARAMETERS = [
     },
     {
         "name": "vat_rate", "label": "VAT / Sales Tax (%)", "type": "float",
-        "default": 8.0, "min": 0.0, "max": 30.0,
-        "description": "Inclusive VAT/sales tax collected by the platform. Reduces gross revenue before platform fee. Average ~8% (EU 20%, US <1%).",
+        "default": 13.0, "min": 0.0, "max": 30.0,
+        "description": "Inclusive VAT/sales tax collected by the platform. Reduces gross revenue before platform fee. Average ~8% US-heavy, ~13% globally (EU 20%, US <1%).",
     },
     {
         "name": "regional_pricing_pct", "label": "Regional Pricing (% of list)", "type": "float",
         "default": 85.0, "min": 50.0, "max": 100.0,
         "description": "Effective average price received after regional pricing adjustments. Lower for audiences in South America, Southeast Asia, etc. Typically 80-90%.",
+    },
+    {
+        "name": "itch_share_pct", "label": "itch.io Share (%)", "type": "float",
+        "default": 0.0, "min": 0.0, "max": 50.0,
+        "description": "Incremental unit lift from itch.io when platform is 'Both'. itch.io reaches an audience Steam doesn't, adding this % more sales at a lower fee.",
     },
 
     # --- Wishlist & launch ---

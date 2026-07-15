@@ -6,7 +6,7 @@ The repo contains **three independent simulators** — mobile games, web games, 
 
 ## What it does
 
-Both simulators model 365 days of game economics — user acquisition, retention, monetization, and operating costs — with a distinction between accrued revenue and actual cash settlement. They show 90 days of daily projections plus monthly summaries for months 4–12.
+All three simulators model 365 days of game economics — user acquisition, retention, monetization, and operating costs — with a distinction between accrued revenue and actual cash settlement. They show 90 days of daily projections plus monthly summaries for months 4–12.
 
 ### Mobile Game Simulator (`runway.py`)
 
@@ -145,6 +145,7 @@ See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patt
 | | Refund Rate (%) | Percentage of sales refunded |
 | | VAT / Sales Tax (%) | Inclusive tax extracted from gross revenue (avg ~13%) |
 | | Regional Pricing (% of list) | Effective avg price after regional pricing (typically 80-90%) |
+| | itch.io Share (%) | Incremental unit lift when releasing on both Steam + itch.io |
 | **Platform** | Publish Platform | Steam, itch.io, or Both |
 | **Wishlist & Launch** | Pre-Launch Wishlists | Wishlist count at launch (drives launch spike) |
 | | Launch Conversion (%) | Percentage of wishlists that convert during launch |
