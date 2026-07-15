@@ -619,7 +619,11 @@ class WebGameTUI(App):
     }
     #main-content {
         width: 1fr;
+        height: 1fr;
         padding: 0 1;
+    }
+    TabbedContent {
+        height: 1fr;
     }
     .param-section {
         margin-top: 0;
