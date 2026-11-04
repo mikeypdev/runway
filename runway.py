@@ -2,10 +2,20 @@ import datetime
 import json
 import math
 from pathlib import Path
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button, Static, Collapsible
-from rich.text import Text
+try:
+    from textual.app import App, ComposeResult
+    from textual.containers import Horizontal, Vertical
+    from textual.widgets import Header, Footer, Input, Label, TabbedContent, TabPane, DataTable, Select, Button, Static, Collapsible
+    from rich.text import Text
+    TUI_AVAILABLE = True
+except ImportError:
+    class _MissingWidget:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("textual is not installed")
+    App = ComposeResult = Horizontal = Vertical = _MissingWidget
+    Header = Footer = Input = Label = TabbedContent = TabPane = DataTable = _MissingWidget
+    Select = Button = Static = Collapsible = Text = _MissingWidget
+    TUI_AVAILABLE = False
 
 SCENARIOS_FILE = Path("scenarios.json")
 
@@ -1227,7 +1237,7 @@ class BusinessModelTUI(App):
             show["sec_ads"] = True
         elif model_type == MODEL_PREMIUM:
             show["sec_premium"] = True
-            show["sec_trial"] = self.engine.trial_enabled
+            show["sec_trial"] = True
         elif model_type == MODEL_REMOVE_ADS:
             show["sec_ads"] = True
             show["sec_remove_ads"] = True
@@ -1238,9 +1248,14 @@ class BusinessModelTUI(App):
             section = self.query_one(f"#{section_id}", Collapsible)
             section.set_class(not visible, "hidden")
             section.visible = visible
+            trial_inputs_active = visible and (
+                model_type != MODEL_PREMIUM or self.engine.trial_enabled
+            )
             for widget in section.walk_children():
                 if isinstance(widget, Input):
-                    widget.disabled = not visible
+                    widget.disabled = not (
+                        trial_inputs_active if section_id == "sec_trial" else visible
+                    )
 
         self._update_activity_labels()
 
@@ -1780,4 +1795,6 @@ class BusinessModelTUI(App):
 
 
 if __name__ == "__main__":
+    if not TUI_AVAILABLE:
+        raise SystemExit("textual is not installed. Install it to run the TUI (pip install textual).")
     BusinessModelTUI().run()

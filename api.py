@@ -448,6 +448,7 @@ class MobileGameAPI:
                 activity_label: activity_val,
                 "total_revenue": round(summary_raw["total_accrued"], 2),
                 "final_bank": round(summary_raw["final_bank"], 2),
+                "min_bank": round(summary_raw["min_bank"], 2),
                 "break_even_day": summary_raw["break_even_day"],
             },
             "diagnosis": {

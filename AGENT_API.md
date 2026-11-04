@@ -108,6 +108,7 @@ Numeric values below are **illustrative** — they shift as engine defaults evol
         "peak_dau": 797,          # "total_installs" for premium, "peak_subs" for subscription
         "total_revenue": 7200.0,  # 365-day accrued revenue
         "final_bank": -81.0,      # Year-end bank balance
+        "min_bank": -178.0,       # Lowest bank balance across the timeline (max cash drawdown)
         "break_even_day": None,   # Day bank balance first ≥ starting capital (None = never)
     },
     "diagnosis": {

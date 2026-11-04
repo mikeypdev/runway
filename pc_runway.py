@@ -12,13 +12,23 @@ import json
 import math
 from pathlib import Path
 
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import (
-    Header, Footer, Input, Label, TabbedContent, TabPane,
-    DataTable, Select, Button, Static, Collapsible,
-)
-from rich.text import Text
+try:
+    from textual.app import App, ComposeResult
+    from textual.containers import Horizontal, Vertical
+    from textual.widgets import (
+        Header, Footer, Input, Label, TabbedContent, TabPane,
+        DataTable, Select, Button, Static, Collapsible,
+    )
+    from rich.text import Text
+    TUI_AVAILABLE = True
+except ImportError:
+    class _MissingWidget:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("textual is not installed")
+    App = ComposeResult = Horizontal = Vertical = _MissingWidget
+    Header = Footer = Input = Label = TabbedContent = TabPane = DataTable = _MissingWidget
+    Select = Button = Static = Collapsible = Text = _MissingWidget
+    TUI_AVAILABLE = False
 
 PC_SCENARIOS_FILE = Path("pc_scenarios.json")
 
@@ -1446,4 +1456,6 @@ class PCGameTUI(App):
 
 
 if __name__ == "__main__":
+    if not TUI_AVAILABLE:
+        raise SystemExit("textual is not installed. Install it to run the TUI (pip install textual).")
     PCGameTUI().run()
