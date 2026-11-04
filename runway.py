@@ -34,6 +34,11 @@ BILLING_OPTIONS = [
     ("Annual", BILLING_ANNUAL),
 ]
 
+TRIAL_OPTIONS = [
+    ("Off (paid download)", "off"),
+    ("On (free trial download)", "on"),
+]
+
 EXPOSED_PARAMS = [
     ("daily_ua_spend", "in_ua_spend", float),
     ("target_roi", "in_target_roi", float),
@@ -58,6 +63,10 @@ EXPOSED_PARAMS = [
     ("day_1_retention", "in_d1_retention", float),
     ("decay_exponent", "in_decay", float),
     ("game_price", "in_game_price", float),
+    ("trial_conversion_pct", "in_trial_conv", float),
+    ("trial_to_purchase_days", "in_trial_days", int),
+    ("trial_rating_boost", "in_trial_boost", float),
+    ("ratings_install_threshold", "in_ratings_threshold", float),
     ("ad_removal_price", "in_ad_removal_price", float),
     ("ad_removal_pct", "in_ad_removal_pct", float),
     ("subscription_price", "in_sub_price", float),
@@ -90,6 +99,25 @@ DEFAULT_SCENARIOS = {
         "daily_ua_spend": 15.00, "cpi": 0.80, "cpi_saturation": 0.40,
         "influencer_installs": 10.0,
         "organic_ratio": 0.12, "virality_k_factor": 0.04,
+        "payer_pct": 3.0, "arppu": 0.75,
+        "interstitial_ecpm": 0.0, "interstitial_impressions": 0.0,
+        "rewarded_ecpm": 0.0, "rewarded_views": 0.0, "platform_fee": 30.0,
+        "payout_delay_days": 30,
+        "fixed_overhead_daily": 10.00, "server_cost_per_k_dau": 0.12,
+        "day_1_retention": 45.0, "decay_exponent": 0.50,
+        "game_price": 4.99, "ad_removal_price": 2.99, "ad_removal_pct": 5.0,
+        "subscription_price": 0.99, "monthly_churn": 8.0, "billing_period": BILLING_MONTHLY,
+    },
+    "Premium $4.99 Trial": {
+        "model_type": MODEL_PREMIUM,
+        "trial_enabled": True,
+        "trial_conversion_pct": 8.0, "trial_to_purchase_days": 5,
+        "trial_rating_boost": 0.15, "ratings_install_threshold": 5000.0,
+        "starting_capital": 1500.0,
+        "ua_scaling_mode": "manual", "target_roi": 3.0, "max_daily_budget": 50.0, "scale_speed": 1.10,
+        "daily_ua_spend": 15.00, "cpi": 0.35, "cpi_saturation": 0.30,
+        "influencer_installs": 10.0,
+        "organic_ratio": 0.15, "virality_k_factor": 0.06,
         "payer_pct": 3.0, "arppu": 0.75,
         "interstitial_ecpm": 0.0, "interstitial_impressions": 0.0,
         "rewarded_ecpm": 0.0, "rewarded_views": 0.0, "platform_fee": 30.0,
@@ -148,6 +176,12 @@ class ScenarioStore:
         if not self.scenarios:
             self.scenarios = dict(DEFAULT_SCENARIOS)
             self.save()
+            return
+        missing = [n for n, v in DEFAULT_SCENARIOS.items() if n not in self.scenarios]
+        if missing:
+            for name in missing:
+                self.scenarios[name] = dict(DEFAULT_SCENARIOS[name])
+            self.save()
 
     def save(self):
         SCENARIOS_FILE.write_text(json.dumps(self.scenarios, indent=2) + "\n")
@@ -201,6 +235,11 @@ class RevenueLagEngine:
         self.payout_delay_days = 30
 
         self.game_price = 4.99
+        self.trial_enabled = False
+        self.trial_conversion_pct = 8.0
+        self.trial_to_purchase_days = 5
+        self.trial_rating_boost = 0.15
+        self.ratings_install_threshold = 5000.0
         self.ad_removal_price = 2.99
         self.ad_removal_pct = 5.0
         self.subscription_price = 0.99
@@ -224,6 +263,9 @@ class RevenueLagEngine:
             self.ua_scaling_mode = params["ua_scaling_mode"]
         if "billing_period" in params:
             self.billing_period = params["billing_period"]
+        if "trial_enabled" in params:
+            trial = params["trial_enabled"]
+            self.trial_enabled = trial is True or str(trial).lower() in ("on", "true", "1")
         start_date_input = datetime.date.today().strftime("%Y-%m-%d")
         for attr, widget_id, cast_fn in EXPOSED_PARAMS:
             if attr in params:
@@ -232,7 +274,7 @@ class RevenueLagEngine:
             self.start_date = start_date_input
 
     def snapshot_params(self) -> dict:
-        result = {"model_type": self.model_type, "ua_scaling_mode": self.ua_scaling_mode, "billing_period": self.billing_period}
+        result = {"model_type": self.model_type, "ua_scaling_mode": self.ua_scaling_mode, "billing_period": self.billing_period, "trial_enabled": self.trial_enabled}
         result.update({attr: getattr(self, attr) for attr, _, _ in EXPOSED_PARAMS})
         return result
 
@@ -257,6 +299,8 @@ class RevenueLagEngine:
         ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
 
         if self.model_type == MODEL_PREMIUM:
+            if self.trial_enabled:
+                return self.game_price * (self.trial_conversion_pct / 100.0) * (1.0 - self.platform_fee / 100.0)
             return self.game_price * (1.0 - self.platform_fee / 100.0)
 
         if self.model_type == MODEL_REMOVE_ADS:
@@ -346,6 +390,11 @@ class RevenueLagEngine:
         if self.model_type == MODEL_PREMIUM:
             lines.append(f"  Game price:           ${self.game_price:.2f}")
             lines.append(f"  Platform fee:         {self.platform_fee:.0f}%")
+            if self.trial_enabled:
+                net_per_buyer = self.game_price * (1.0 - self.platform_fee / 100.0)
+                lines.append(f"  Trial conversion:     {self.trial_conversion_pct:.1f}% over {self.trial_to_purchase_days:.0f}d")
+                lines.append(f"  Per-install revenue:  ${net_per_buyer * self.trial_conversion_pct / 100.0:.2f}")
+                lines.append(f"  Ratings ramp:         organic/viral ×(1 + {self.trial_rating_boost:.2f}) as installs → {self.ratings_install_threshold:,.0f}")
         elif self.model_type == MODEL_REMOVE_ADS:
             ad_arpu_per_dau = (self.interstitial_ecpm * self.interstitial_impressions + self.rewarded_ecpm * self.rewarded_views) / 1000.0
             removal_ltv = (self.ad_removal_pct / 100.0) * self.ad_removal_price * (1.0 - self.platform_fee / 100.0)
@@ -385,12 +434,28 @@ class RevenueLagEngine:
         if self.daily_ua_spend > 0:
             lines.append(f"  UA spend:             ${self.daily_ua_spend:.2f}/day")
         lines.append(f"  [bold]Daily margin: ${avg_rev - total_daily_cost:+.2f}/day (rev ${avg_rev:.0f} − costs ${total_daily_cost:.0f})[/]")
+        if self._trial_active():
+            min_bank = min(d["bank_balance"] for d in timeline)
+            lines.append(f"  Max cash drawdown:    ${min_bank:,.0f} (survive ratings ramp on starting capital)")
 
         lines.append(f"  [bold]LTV: ${ltv:.2f}[/]  ·  [bold]CPI: ${effective_cpi:.2f}[/]  ·  [bold]Margin: ${ltv - effective_cpi:+.2f}/install[/]")
         return lines
 
-    def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float, active_subscribers: float = 0.0) -> float:
+    def _trial_active(self) -> bool:
+        return self.model_type == MODEL_PREMIUM and self.trial_enabled
+
+    def _ratings_credibility(self, cumulative_installs: float) -> float:
+        """0 → 1 ratings credibility ramp: reaches 1.0 once cumulative installs
+        hit ratings_install_threshold (logarithmic, mirrors CPI saturation)."""
+        threshold = max(self.ratings_install_threshold, 1.0)
+        return min(1.0, math.log(1.0 + cumulative_installs / threshold) / math.log(2.0))
+
+    def _compute_day_revenue(self, dau: float, total_new_installs: float, ad_arpu_per_dau: float, daily_payer_spend: float, active_subscribers: float = 0.0, recent_cohort_installs: float = 0.0) -> float:
         if self.model_type == MODEL_PREMIUM:
+            if self.trial_enabled:
+                window = max(int(self.trial_to_purchase_days), 1)
+                purchases_today = recent_cohort_installs * (self.trial_conversion_pct / 100.0) / window
+                return purchases_today * self.game_price * (1.0 - self.platform_fee / 100.0)
             gross_rev = total_new_installs * self.game_price
             return gross_rev * (1.0 - self.platform_fee / 100.0)
         elif self.model_type == MODEL_REMOVE_ADS:
@@ -448,9 +513,19 @@ class RevenueLagEngine:
                 days_elapsed = day - cohort_day
                 surviving_historical_users += initial_installs * self.get_retention_rate(days_elapsed)
 
-            organic_installs = base_installs * self.organic_ratio
-            first_wave = (base_installs + organic_installs) * self.virality_k_factor
-            viral_installs = first_wave / (1 - self.virality_k_factor) if self.virality_k_factor < 1.0 else first_wave * 10
+            trial_on = self._trial_active()
+            if trial_on:
+                credibility = self._ratings_credibility(total_all_installs_acc)
+                ratings_multiplier = 1.0 + self.trial_rating_boost * credibility
+                organic_ratio_eff = self.organic_ratio * ratings_multiplier
+                k_factor_eff = min(self.virality_k_factor * ratings_multiplier, 0.95)
+            else:
+                organic_ratio_eff = self.organic_ratio
+                k_factor_eff = self.virality_k_factor
+
+            organic_installs = base_installs * organic_ratio_eff
+            first_wave = (base_installs + organic_installs) * k_factor_eff
+            viral_installs = first_wave / (1 - k_factor_eff) if k_factor_eff < 1.0 else first_wave * 10
             total_new_installs = base_installs + organic_installs + viral_installs
             cohort_history[day] = total_new_installs
             total_all_installs_acc += total_new_installs
@@ -460,7 +535,12 @@ class RevenueLagEngine:
             new_subscribers = total_new_installs * (self.payer_pct / 100.0)
             active_subscribers = active_subscribers * (1.0 - daily_churn) + new_subscribers
 
-            day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend, active_subscribers)
+            if trial_on:
+                window = max(int(self.trial_to_purchase_days), 1)
+                recent_cohort_installs = sum(cohort_history.get(d, 0.0) for d in range(day - window + 1, day + 1))
+            else:
+                recent_cohort_installs = 0.0
+            day_accrued_net_revenue = self._compute_day_revenue(dau, total_new_installs, ad_arpu_per_dau, daily_payer_spend, active_subscribers, recent_cohort_installs)
             accrued_revenue_history[day] = day_accrued_net_revenue
             total_revenue_acc += day_accrued_net_revenue
 
@@ -548,6 +628,7 @@ class RevenueLagEngine:
         peak_subs = max(d["active_subs"] for d in timeline)
         total_accrued = sum(d["accrued_rev"] for d in timeline)
         final_bank = timeline[-1]["bank_balance"]
+        min_bank = min(d["bank_balance"] for d in timeline)
         break_even = next(
             (i for i, d in enumerate(timeline) if d["bank_balance"] >= starting_capital), None
         )
@@ -557,6 +638,7 @@ class RevenueLagEngine:
             "peak_subs": peak_subs,
             "total_accrued": total_accrued,
             "final_bank": final_bank,
+            "min_bank": min_bank,
             "break_even_day": break_even,
         }
 
@@ -893,6 +975,10 @@ class BusinessModelTUI(App):
         yield Label("Billing Period:")
         yield Select(BILLING_OPTIONS, value=self.engine.billing_period, id="in_billing_period")
 
+    def _trial_inputs(self):
+        yield Label("Free Trial Download:")
+        yield Select(TRIAL_OPTIONS, value="on" if self.engine.trial_enabled else "off", id="in_trial_mode")
+
     def section(self, title: str, *children, collapsed: bool = True, section_id: str | None = None):
         with Collapsible(title=title, collapsed=collapsed, classes="param-section", id=section_id):
             for child in children:
@@ -971,6 +1057,15 @@ class BusinessModelTUI(App):
                         "Premium Pricing",
                         self.labeled_input("Game Price ($):", "in_game_price", self.engine.game_price),
                         section_id="sec_premium",
+                    )
+                    yield from self.section(
+                        "Try Before Buy",
+                        self._trial_inputs(),
+                        self.labeled_input("Trial Conversion (%):", "in_trial_conv", self.engine.trial_conversion_pct),
+                        self.labeled_input("Trial→Purchase Window (Days):", "in_trial_days", self.engine.trial_to_purchase_days, type="integer"),
+                        self.labeled_input("Ratings Boost (organic/viral ×):", "in_trial_boost", self.engine.trial_rating_boost),
+                        self.labeled_input("Ratings Install Threshold:", "in_ratings_threshold", self.engine.ratings_install_threshold),
+                        section_id="sec_trial",
                     )
                     yield from self.section(
                         "Ad Removal IAP",
@@ -1125,13 +1220,14 @@ class BusinessModelTUI(App):
             pass
 
     def _apply_model_visibility(self, model_type: str):
-        show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_remove_ads": False, "sec_subscription": False}
+        show = {"sec_iap": False, "sec_ads": False, "sec_premium": False, "sec_trial": False, "sec_remove_ads": False, "sec_subscription": False}
 
         if model_type == MODEL_F2P:
             show["sec_iap"] = True
             show["sec_ads"] = True
         elif model_type == MODEL_PREMIUM:
             show["sec_premium"] = True
+            show["sec_trial"] = self.engine.trial_enabled
         elif model_type == MODEL_REMOVE_ADS:
             show["sec_ads"] = True
             show["sec_remove_ads"] = True
@@ -1161,6 +1257,8 @@ class BusinessModelTUI(App):
             self.query_one("#in_scaling_mode", Select).value = scaling_mode
             billing_period = params.get("billing_period", BILLING_MONTHLY)
             self.query_one("#in_billing_period", Select).value = billing_period
+            trial_mode = params.get("trial_enabled", False)
+            self.query_one("#in_trial_mode", Select).value = "on" if trial_mode else "off"
             self._apply_model_visibility(model_type)
             for attr, widget_id, cast_fn in EXPOSED_PARAMS:
                 self.query_one(f"#{widget_id}", Input).value = str(getattr(self.engine, attr))
@@ -1468,14 +1566,24 @@ class BusinessModelTUI(App):
         d1_ltv = self.engine.solve_parameter("day_1_retention", self.engine.get_ltv_cpi, 3.0, 1.0, 99.0)
 
         if self.engine.model_type == MODEL_PREMIUM:
-            mon_label = "Game Price"
-            mon_id = "in_game_price"
-            mon_curr_raw = self.engine.game_price
-            mon_curr_disp = f"${mon_curr_raw:.2f}"
-            mon_be = self.engine.solve_parameter("game_price", self.engine.get_final_bank, 0.0, 0.49, 100.0)
-            mon_ltv = self.engine.solve_parameter("game_price", self.engine.get_ltv_cpi, 3.0, 0.49, 100.0)
-            mon_is_pct = False
-            mon_is_currency = True
+            if self.engine.trial_enabled:
+                mon_label = "Trial Conversion"
+                mon_id = "in_trial_conv"
+                mon_curr_raw = self.engine.trial_conversion_pct
+                mon_curr_disp = f"{mon_curr_raw:.1f}%"
+                mon_be = self.engine.solve_parameter("trial_conversion_pct", self.engine.get_final_bank, 0.0, 0.1, 100.0)
+                mon_ltv = self.engine.solve_parameter("trial_conversion_pct", self.engine.get_ltv_cpi, 3.0, 0.1, 100.0)
+                mon_is_pct = True
+                mon_is_currency = False
+            else:
+                mon_label = "Game Price"
+                mon_id = "in_game_price"
+                mon_curr_raw = self.engine.game_price
+                mon_curr_disp = f"${mon_curr_raw:.2f}"
+                mon_be = self.engine.solve_parameter("game_price", self.engine.get_final_bank, 0.0, 0.49, 100.0)
+                mon_ltv = self.engine.solve_parameter("game_price", self.engine.get_ltv_cpi, 3.0, 0.49, 100.0)
+                mon_is_pct = False
+                mon_is_currency = True
         elif self.engine.model_type == MODEL_REMOVE_ADS:
             mon_label = "Ad Removal Conv"
             mon_id = "in_ad_removal_pct"
@@ -1656,6 +1764,11 @@ class BusinessModelTUI(App):
             self._refresh_solver_tab_if_active()
         elif event.select.id == "in_billing_period" and event.value is not None:
             self.engine.billing_period = str(event.value)
+            self.action_recalculate()
+            self._refresh_solver_tab_if_active()
+        elif event.select.id == "in_trial_mode" and event.value is not None:
+            self.engine.trial_enabled = str(event.value) == "on"
+            self._apply_model_visibility(self.engine.model_type)
             self.action_recalculate()
             self._refresh_solver_tab_if_active()
         elif event.select.id == "solver_goal_select" and event.value is not None:

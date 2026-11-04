@@ -53,6 +53,11 @@ MOBILE_MODELS = [
         "description": (
             "One-time purchase per install, no ads or recurring revenue. "
             "Revenue = new_installs × game_price × (1 - platform_fee). "
+            "Optionally supports try-before-buy: free trial downloads convert "
+            "to purchases at trial_conversion_pct spread over "
+            "trial_to_purchase_days, with a ratings credibility ramp that "
+            "boosts organic ratio and virality as cumulative installs grow "
+            "toward ratings_install_threshold. "
             "Activity metric: daily installs (each install is a sale)."
         ),
     },
@@ -233,6 +238,38 @@ MOBILE_PARAMETERS = [
         "name": "game_price", "label": "Game Price ($)", "type": "float",
         "default": 4.99, "min": 0.49,
         "description": "One-time purchase price for the premium model.",
+        "models": ["premium"],
+    },
+
+    # --- Try before buy (premium) ---
+    {
+        "name": "trial_enabled", "label": "Free Trial Download", "type": "boolean",
+        "default": False,
+        "description": "Try-before-buy: installs are free downloads; revenue comes only from trial conversions.",
+        "models": ["premium"],
+    },
+    {
+        "name": "trial_conversion_pct", "label": "Trial Conversion (%)", "type": "float",
+        "default": 8.0, "min": 0.0, "max": 100.0,
+        "description": "Percent of trial downloads that eventually purchase the game.",
+        "models": ["premium"],
+    },
+    {
+        "name": "trial_to_purchase_days", "label": "Trial→Purchase Window (Days)", "type": "integer",
+        "default": 5, "min": 1,
+        "description": "Days over which trial conversions are spread (drives revenue lag).",
+        "models": ["premium"],
+    },
+    {
+        "name": "trial_rating_boost", "label": "Ratings Boost", "type": "float",
+        "default": 0.15, "min": 0.0,
+        "description": "Multiplier bonus applied to organic ratio and viral k-factor as ratings credibility grows (e.g. 0.15 = +15%).",
+        "models": ["premium"],
+    },
+    {
+        "name": "ratings_install_threshold", "label": "Ratings Install Threshold", "type": "float",
+        "default": 5000.0, "min": 1.0,
+        "description": "Cumulative installs at which the ratings credibility ramp reaches full boost (logarithmic).",
         "models": ["premium"],
     },
 
@@ -430,7 +467,10 @@ class MobileGameAPI:
 
         if model == "premium":
             components["game_price_net"] = round(ltv, 4)
-            description = f"Net price after {self.engine.platform_fee:.0f}% platform fee"
+            if self.engine.trial_enabled:
+                description = f"Net price after {self.engine.platform_fee:.0f}% platform fee × {self.engine.trial_conversion_pct:.1f}% trial conversion"
+            else:
+                description = f"Net price after {self.engine.platform_fee:.0f}% platform fee"
         elif model == "remove_ads":
             ad_arpu = (self.engine.interstitial_ecpm * self.engine.interstitial_impressions + self.engine.rewarded_ecpm * self.engine.rewarded_views) / 1000.0
             removal = (self.engine.ad_removal_pct / 100.0) * self.engine.ad_removal_price * (1.0 - self.engine.platform_fee / 100.0)

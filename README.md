@@ -12,7 +12,7 @@ All three simulators model 365 days of game economics — user acquisition, rete
 
 Models free-to-play and premium mobile game economics. Supports three business models:
 - **F2P (IAP + Ads)** — payer conversion × ARPPU + rewarded video ad revenue
-- **Premium (Buy Once)** — one-time purchase per install, no ads; the timeline and metrics show **installs** instead of DAU since active-user engagement doesn't drive revenue
+- **Premium (Buy Once)** — one-time purchase per install, no ads; the timeline and metrics show **installs** instead of DAU since active-user engagement doesn't drive revenue. Optionally supports **Try Before Buy** (free trial download): installs are free downloads that convert to purchases at `Trial Conversion %` spread over the trial→purchase window, and a ratings credibility ramp boosts organic ratio and virality as cumulative installs grow toward the `Ratings Install Threshold` (models how ratings/word-of-mouth gradually unlock growth for a brand-new game)
 - **F2P + Remove Ads IAP** — free users generate ad revenue, paying users remove ads via one-time IAP
 - **Subscription (No Ads)** — monthly or annual recurring subscription; the timeline and metrics show **active subscribers** instead of DAU since revenue depends on paying subscribers, not total active users
 
@@ -104,6 +104,11 @@ See **`AGENT_API.md`** for full documentation, parameter schemas, and usage patt
 | **Ad Revenue** *(F2P, Remove Ads)* | Video Ad eCPM | Revenue per 1000 ad impressions |
 | | Ad Impressions / DAU / Day | Rewarded video ad frequency |
 | **Premium Pricing** *(Premium only)* | Game Price | One-time purchase price |
+| **Try Before Buy** *(Premium, trial on)* | Free Trial Download | Off = paid download, On = free trial downloads |
+| | Trial Conversion % | Fraction of trial downloads that eventually purchase |
+| | Trial→Purchase Window (Days) | Days over which conversions are spread (revenue lag) |
+| | Ratings Boost | Organic ratio / viral k-factor multiplier as ratings credibility grows |
+| | Ratings Install Threshold | Cumulative installs at which the ratings ramp reaches full boost |
 | **Ad Removal IAP** *(Remove Ads only)* | Ad Removal Price | One-time IAP to disable ads |
 | | Removal Conversion % | Fraction of new installs that buy removal |
 | **Subscription Pricing** *(Subscription only)* | Billing Period | Monthly or Annual billing cycle |
@@ -217,6 +222,7 @@ Default scenarios ship with each model:
 **Mobile (`runway.py`):**
 - **F2P Base Case** — Moderate spend, standard metrics
 - **Premium $4.99** — Buy-once model with higher CPI
+- **Premium $4.99 Trial** — Try-before-buy: cheap installs, 8% trial conversion, ratings ramp
 - **F2P Remove Ads $2.99** — Hybrid ad + removal IAP
 - **Subscription $0.99/mo** — Low monthly subscription, no ads
 
@@ -240,7 +246,7 @@ Both engines track each day's new installs as a cohort, apply a power-law retent
 
 **Mobile (`runway.py`):**
 - **F2P:** IAP revenue from payer conversion × ARPPU + ad revenue from eCPM × impressions
-- **Premium:** New installs × game price, no recurring revenue. The timeline table, KPI bar, sensitivity, and compare tables show installs (daily new / total) instead of DAU, since each install is a one-time sale with no recurring monetization.
+- **Premium:** New installs × game price, no recurring revenue. The timeline table, KPI bar, sensitivity, and compare tables show installs (daily new / total) instead of DAU, since each install is a one-time sale with no recurring monetization. With **Try Before Buy** enabled, installs are free downloads: daily purchases = (installs over the trailing trial→purchase window) × trial conversion %, and organic ratio + viral k-factor scale up by the ratings boost as cumulative installs approach the ratings install threshold (logarithmic ramp). The solver's LTV breakdown also shows the max cash drawdown, since the trial ramp must be survived on starting capital.
 - **Remove Ads:** New installs split — removers pay once, rest generate ad revenue daily
 - **Subscription:** Active subscribers × daily rate (price / billing cycle). Subscribers are acquired from new installs at the conversion rate and decay at the daily-equivalent monthly churn. The timeline and metrics show active subscribers (daily active / peak) instead of DAU, since revenue is tied to paying subscribers, not total active users.
 

@@ -56,7 +56,7 @@ print(result["diagnosis"]["message"])
 | Model | ID | How revenue works | Activity metric |
 |---|---|---|---|
 | F2P (IAP + Ads) | `f2p` | DAU × payer% × ARPPU + DAU × ad impressions × eCPM | DAU |
-| Premium (Buy Once) | `premium` | Each install × game price, one-time | Daily installs |
+| Premium (Buy Once) | `premium` | Each install × game price, one-time. Optional try-before-buy: free trial downloads convert at `trial_conversion_pct` over `trial_to_purchase_days`, with a ratings credibility ramp that boosts organic ratio and viral k-factor as cumulative installs grow toward `ratings_install_threshold` | Daily installs |
 | F2P + Remove Ads | `remove_ads` | Some users pay to remove ads, rest see ads | DAU |
 | Subscription | `subscription` | Active subscribers × daily rate, churned monthly | Active subscribers |
 

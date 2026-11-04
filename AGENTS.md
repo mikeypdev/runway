@@ -35,7 +35,7 @@ All three apps share the same structural pattern. Each is a single file:
 
 **`runway.py`** (~1670 lines):
 
-- **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 4 built-in scenarios on first run.
+- **`ScenarioStore`** — JSON-backed (`scenarios.json`) CRUD for named parameter snapshots. Auto-seeds 5 built-in scenarios on first run.
 - **`RevenueLagEngine`** — Pure simulation engine. Models UA cohorts, power-law retention, IAP monetization (ARPPU + payer conversion), ad revenue, CPI saturation, recursive virality, platform fees, payout delays, starting capital, auto-scaling UA, scaling OpEx, subscriber cohort tracking with churn, and billing period options. `calculate_timeline()` computes 365 days internally, returns 90 daily rows + 9 monthly summaries.
 - **`BusinessModelTUI(App)`** — Textual TUI. Sidebar with scenario selector + collapsible parameter sections (~30 inputs). Four tabs: "12-Month Runway" (timeline table with model-appropriate activity metric), "Compare Scenarios" (side-by-side summary metrics), "Spend Analysis" (sensitivity table), and "Target Solver" (goal-seeking with LTV breakdown). KPI bar includes a health diagnosis line that flags per-install profitability issues.
 
@@ -65,6 +65,7 @@ All three apps share the same structural pattern. Each is a single file:
 - **Accrual vs. cash:** Engine distinguishes accrued (paper) revenue from settled cash inflow, governed by `payout_delay_days`.
 - **Monthly aggregation:** Days 91–365 are grouped by calendar month. Summed for revenue/costs, last-day snapshot for DAU and bank balance. Labeled `YYYY-MM (month)`.
 - **CPI saturation:** `effective_cpi = base_cpi * (1 + saturation * ln(1 + cumulative_paid / 10000))`. Scales logarithmically — fast rise early, plateau later.
+- ****Try Before Buy (premium):** When `trial_enabled`, installs are free downloads; daily purchases = trailing-window installs × `trial_conversion_pct` spread over `trial_to_purchase_days`. A logarithmic ratings credibility ramp (`_ratings_credibility()`, full boost at `ratings_install_threshold` cumulative installs) scales organic ratio and viral k-factor by `1 + trial_rating_boost × credibility`, modeling how ratings/word-of-mouth gradually unlock growth.
 - **Recursive virality:** `viral_installs = first_wave / (1 - k_factor)` (geometric series). Clamped to `first_wave * 10` if k ≥ 1.0.
 - **Subscriber cohort tracking (subscription model):** Each day, `new_subscribers = installs × conversion`. Subscribers decay at `daily_churn = 1 − (1 − monthly_churn/100)^(1/30)`. Revenue = `active_subs × daily_rate × (1 − platform_fee)`.
 - **Model-appropriate activity metrics:** The timeline table, KPI bar, compare table, and sensitivity table show different activity metrics depending on model type: DAU (F2P, Remove Ads), installs (Premium), or active subscribers (Subscription). Column headers relabel dynamically via `_update_activity_labels()`.
